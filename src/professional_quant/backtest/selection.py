@@ -192,6 +192,41 @@ def training_score(row: dict[str, Any], profile: str) -> float:
             + 0.10 * min_sub_positive
             - 0.06 * max_sub_trade
         )
+    if profile == "recent40":
+        min_sub_annual = float(row.get("subperiod_min_annual_return", annual))
+        first_sub_annual = float(row.get("subperiod_first_annual_return", annual))
+        last_sub_annual = float(row.get("subperiod_last_annual_return", annual))
+        last_sub_drawdown = abs(min(float(row.get("subperiod_last_drawdown", row["max_drawdown"])), 0.0))
+        min_sub_positive = float(row.get("subperiod_min_positive_period_rate", positive_rate))
+        max_sub_trade = float(row.get("subperiod_max_trade_period_rate", trade_rate))
+        subperiod_count = int(row.get("subperiod_count", 0) or 0)
+        if active_rate < 0.50 or positive_rate < 0.44 or drawdown > 0.62 or trade_rate > 0.60:
+            return -np.inf
+        if annual < 0.22 or period_std > 0.038:
+            return -np.inf
+        if subperiod_count >= 2 and (
+            first_sub_annual < 0.00
+            or last_sub_annual < 0.16
+            or min_sub_annual < 0.05
+            or last_sub_drawdown > 0.48
+            or min_sub_positive < 0.44
+            or max_sub_trade > 0.60
+        ):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.28 * annual
+            + 0.42 * last_sub_annual
+            + 0.20 * min_sub_annual
+            + 0.15 * excess_return
+            - 0.12 * target_gap
+            - 0.16 * drawdown
+            - 0.20 * last_sub_drawdown
+            + 0.10 * positive_rate
+            + 0.08 * min_sub_positive
+            - 0.05 * max_sub_trade
+        )
     raise ValueError(profile)
 
 
@@ -469,11 +504,21 @@ def training_subperiod_metrics(
         return {"subperiod_count": 0}
     return {
         "subperiod_count": int(len(annual_returns)),
+        "subperiod_first_annual_return": float(annual_returns[0]),
+        "subperiod_last_annual_return": float(annual_returns[-1]),
         "subperiod_min_annual_return": float(min(annual_returns)),
         "subperiod_max_annual_return": float(max(annual_returns)),
+        "subperiod_first_drawdown": float(drawdowns[0]),
+        "subperiod_last_drawdown": float(drawdowns[-1]),
         "subperiod_worst_drawdown": float(min(drawdowns)),
+        "subperiod_first_positive_period_rate": float(positive_rates[0]),
+        "subperiod_last_positive_period_rate": float(positive_rates[-1]),
         "subperiod_min_positive_period_rate": float(min(positive_rates)),
+        "subperiod_first_active_period_rate": float(active_rates[0]),
+        "subperiod_last_active_period_rate": float(active_rates[-1]),
         "subperiod_min_active_period_rate": float(min(active_rates)),
+        "subperiod_first_trade_period_rate": float(trade_rates[0]),
+        "subperiod_last_trade_period_rate": float(trade_rates[-1]),
         "subperiod_max_trade_period_rate": float(max(trade_rates)),
     }
 

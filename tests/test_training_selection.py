@@ -126,6 +126,32 @@ def test_durable40_profile_requires_train_subperiod_durability():
     assert dynamic.training_score(high_turnover, "durable40") == -math.inf
 
 
+def test_recent40_profile_requires_recent_train_strength():
+    stable = _row(
+        annual_return=0.30,
+        max_drawdown=-0.34,
+        active_period_rate=0.98,
+        positive_period_rate=0.49,
+        trade_period_rate=0.18,
+        period_return_std=0.018,
+        subperiod_count=2,
+        subperiod_first_annual_return=0.18,
+        subperiod_last_annual_return=0.36,
+        subperiod_min_annual_return=0.18,
+        subperiod_last_drawdown=-0.30,
+        subperiod_min_positive_period_rate=0.49,
+        subperiod_max_trade_period_rate=0.18,
+    )
+    weak_recent = dict(stable)
+    weak_recent["subperiod_last_annual_return"] = 0.08
+    weak_early = dict(stable)
+    weak_early["subperiod_first_annual_return"] = -0.02
+
+    assert math.isfinite(dynamic.training_score(stable, "recent40"))
+    assert dynamic.training_score(weak_recent, "recent40") == -math.inf
+    assert dynamic.training_score(weak_early, "recent40") == -math.inf
+
+
 def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
     formulas = dynamic.selected_formulas("expanded", "new_price_volume")
     names = {formula.name for formula in formulas}
@@ -234,6 +260,7 @@ if __name__ == "__main__":
     test_stable40q_profile_requires_quartered_train_stability()
     test_stable40y_profile_requires_calendar_year_stability()
     test_durable40_profile_requires_train_subperiod_durability()
+    test_recent40_profile_requires_recent_train_strength()
     test_new_price_volume_scope_includes_scan_ready_float_cap_formulas()
     test_market_valuation_states_use_rolling_history_only()
     test_credible_grid_includes_market_valuation_filters()
