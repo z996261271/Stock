@@ -77,6 +77,22 @@ def test_stable40q_profile_requires_quartered_train_stability():
     assert dynamic.training_score(unstable, "stable40q") == -math.inf
 
 
+def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
+    formulas = dynamic.selected_formulas("expanded", "new_price_volume")
+    names = {formula.name for formula in formulas}
+    assert "small_cap_pullback_quality" in names
+    assert "small_cap_dryup_reacceleration" in names
+    assert "float_cap_repair" in names
+
+    rank_names = {
+        rank_name
+        for formula in formulas
+        for rank_name in formula.weights
+        if rank_name not in dynamic.INDUSTRY_RELATIVE_FEATURES
+    }
+    assert rank_names <= set(dynamic.RANK_MAP)
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -132,4 +148,5 @@ if __name__ == "__main__":
     test_return40_profile_rejects_untradable_or_extreme_candidates()
     test_stable40_profile_requires_internal_train_stability()
     test_stable40q_profile_requires_quartered_train_stability()
+    test_new_price_volume_scope_includes_scan_ready_float_cap_formulas()
     test_strict_window_metrics_replays_from_window_start()

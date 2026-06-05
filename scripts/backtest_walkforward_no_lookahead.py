@@ -30,7 +30,7 @@ from quant_data_quality import adjustment_coverage, require_factor_adjust_covera
 from quant_universe import board_scope_sql
 from run_manifest import collect_manifest, write_manifest
 
-FACTOR_CACHE_VERSION = "v5"
+FACTOR_CACHE_VERSION = "v6"
 
 FEATURES = [
     "mom_252_21_r",
@@ -72,6 +72,8 @@ FEATURES = [
     "turnover_contract_21_63_r",
     "amount_contract_21_63_r",
     "vol_contract_21_63_r",
+    "small_float_cap_21_r",
+    "cap_contract_21_63_r",
     "low_downvol_63_r",
     "low_beta_63_r",
     "low_idio_vol_63_r",
@@ -369,6 +371,11 @@ def add_factors(df: pd.DataFrame) -> pd.DataFrame:
     df["amount_ma_63"] = group["amount"].rolling(63).mean().reset_index(level=0, drop=True)
     df["surge_5_21"] = df["amount_ma_5"] / df["amount_ma_21"]
     df["surge_21_63"] = df["amount_ma_21"] / df["amount_ma_63"]
+    turnover_rate = df["turnover"].where(df["turnover"] > 0) / 100.0
+    df["float_cap_proxy"] = df["amount"] / turnover_rate.replace(0, np.nan)
+    df["float_cap_ma_21"] = group["float_cap_proxy"].rolling(21).median().reset_index(level=0, drop=True)
+    df["float_cap_ma_63"] = group["float_cap_proxy"].rolling(63).median().reset_index(level=0, drop=True)
+    df["cap_contract_21_63"] = -(df["float_cap_ma_21"] / df["float_cap_ma_63"].replace(0, np.nan) - 1.0)
     df["turnover_ma_21"] = group["turnover"].rolling(21).mean().reset_index(level=0, drop=True)
     df["turnover_ma_63"] = group["turnover"].rolling(63).mean().reset_index(level=0, drop=True)
     df["turnover_contract_21_63"] = -(df["turnover_ma_21"] / df["turnover_ma_63"].replace(0, np.nan) - 1.0)
@@ -620,6 +627,39 @@ def formulas(formula_set: str = "expanded") -> list[Formula]:
             },
         ),
         Formula(
+            "small_cap_pullback_quality",
+            {
+                "small_float_cap_21_r": 0.25,
+                "mom_126_21_r": 0.20,
+                "time_series_r": 0.20,
+                "rev_5_r": 0.15,
+                "lowvol_63_r": 0.10,
+                "low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "small_cap_dryup_reacceleration",
+            {
+                "small_float_cap_21_r": 0.25,
+                "cap_contract_21_63_r": 0.20,
+                "amount_contract_21_63_r": 0.15,
+                "money_strength_21_r": 0.15,
+                "mom_21_r": 0.15,
+                "lowvol_63_r": 0.10,
+            },
+        ),
+        Formula(
+            "float_cap_repair",
+            {
+                "cap_contract_21_63_r": 0.25,
+                "deep_drawdown_63_r": 0.20,
+                "rev_10_r": 0.20,
+                "money_strength_21_r": 0.15,
+                "low_beta_63_r": 0.10,
+                "low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
             "drawdown_repair_quality",
             {
                 "deep_drawdown_63_r": 0.20,
@@ -698,6 +738,8 @@ def add_rank_columns(signal_df: pd.DataFrame) -> pd.DataFrame:
         "turnover_contract_21_63_r": ("turnover_contract_21_63", True),
         "amount_contract_21_63_r": ("amount_contract_21_63", True),
         "vol_contract_21_63_r": ("vol_contract_21_63", True),
+        "small_float_cap_21_r": ("float_cap_ma_21", False),
+        "cap_contract_21_63_r": ("cap_contract_21_63", True),
         "low_downvol_63_r": ("down_vol_63", False),
         "low_beta_63_r": ("beta_63", False),
         "low_idio_vol_63_r": ("idio_vol_63", False),

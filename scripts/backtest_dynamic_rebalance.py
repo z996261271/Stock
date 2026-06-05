@@ -154,6 +154,8 @@ RANK_MAP = {
     "turnover_contract_21_63_r": ("turnover_contract_21_63", True),
     "amount_contract_21_63_r": ("amount_contract_21_63", True),
     "vol_contract_21_63_r": ("vol_contract_21_63", True),
+    "small_float_cap_21_r": ("float_cap_ma_21", False),
+    "cap_contract_21_63_r": ("cap_contract_21_63", True),
     "low_downvol_63_r": ("down_vol_63", False),
     "low_beta_63_r": ("beta_63", False),
     "low_idio_vol_63_r": ("idio_vol_63", False),
@@ -412,6 +414,9 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
             "low_beta_pullback_trend",
             "dryup_reacceleration",
             "vol_compression_breakout",
+            "small_cap_pullback_quality",
+            "small_cap_dryup_reacceleration",
+            "float_cap_repair",
             "drawdown_repair_quality",
         }
         return [formula for formula in pool if formula.name in selected]
@@ -435,6 +440,9 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
         "low_beta_pullback_trend",
         "dryup_reacceleration",
         "vol_compression_breakout",
+        "small_cap_pullback_quality",
+        "small_cap_dryup_reacceleration",
+        "float_cap_repair",
         "drawdown_repair_quality",
     }
     return [formula for formula in pool if formula.name in selected]
