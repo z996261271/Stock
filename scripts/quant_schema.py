@@ -116,6 +116,31 @@ def ensure_quant_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_symbol_valuation_daily_date
             ON symbol_valuation_daily (trade_date);
 
+        CREATE TABLE IF NOT EXISTS symbol_financial_indicator (
+            symbol TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            notice_date TEXT NOT NULL,
+            update_date TEXT,
+            report_type TEXT,
+            report_year INTEGER,
+            roe REAL,
+            roic REAL,
+            gross_margin REAL,
+            net_margin REAL,
+            asset_return REAL,
+            debt_asset_ratio REAL,
+            revenue_growth_yoy REAL,
+            profit_growth_yoy REAL,
+            deduct_profit_growth_yoy REAL,
+            operating_cashflow_to_revenue REAL,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, report_date, notice_date)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_symbol_financial_indicator_notice
+            ON symbol_financial_indicator (notice_date);
+
         CREATE TABLE IF NOT EXISTS signals (
             signal_id TEXT PRIMARY KEY,
             run_id TEXT,

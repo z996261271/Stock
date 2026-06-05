@@ -316,6 +316,76 @@ def test_valuation_formula_scope_exposes_value_factors():
     assert {"low_pe_ttm_r", "low_pb_r", "small_mcap_value_r"} <= rank_names
 
 
+def test_symbol_financial_features_use_notice_date_backward_asof_only():
+    bars = pd.DataFrame(
+        {
+            "symbol": ["600519", "600519", "600519", "000001"],
+            "trade_date": pd.to_datetime(["2021-04-19", "2021-04-20", "2021-05-01", "2021-04-20"]),
+            "close": [1.0, 1.0, 1.0, 1.0],
+        }
+    )
+    financials = pd.DataFrame(
+        {
+            "symbol": ["600519", "600519", "000001"],
+            "report_date": pd.to_datetime(["2020-12-31", "2021-03-31", "2020-12-31"]),
+            "notice_date": pd.to_datetime(["2021-04-20", "2021-04-30", "2021-04-21"]),
+            "roe": [10.0, 20.0, 5.0],
+            "roic": [8.0, 9.0, 4.0],
+            "gross_margin": [30.0, 31.0, 20.0],
+            "net_margin": [12.0, 13.0, 8.0],
+            "asset_return": [5.0, 6.0, 3.0],
+            "debt_asset_ratio": [40.0, 41.0, 50.0],
+            "revenue_growth_yoy": [15.0, 16.0, 7.0],
+            "profit_growth_yoy": [18.0, 19.0, 6.0],
+            "deduct_profit_growth_yoy": [17.0, 18.0, 5.0],
+            "operating_cashflow_to_revenue": [0.8, 0.9, 0.4],
+        }
+    )
+
+    out = dynamic.add_symbol_financial_features(bars, financials, ["quality_roe_r", "quality_roic_r"])
+
+    assert pd.isna(out.loc[0, "roe_asof"])
+    assert out.loc[1, "roe_asof"] == 10.0
+    assert out.loc[2, "roe_asof"] == 20.0
+    assert pd.isna(out.loc[3, "roe_asof"])
+
+
+def test_quality_formula_scope_exposes_financial_quality_factors():
+    formulas = dynamic.selected_formulas("expanded", "quality")
+    names = {formula.name for formula in formulas}
+    rank_names = {rank for formula in formulas for rank in formula.weights}
+
+    assert names == {
+        "quality_value_compounder",
+        "cashflow_quality_pullback",
+        "quality_growth_reacceleration",
+        "cashflow_defensive_quality",
+        "asset_light_quality_trend",
+        "profit_growth_low_noise",
+    }
+    assert {"quality_roe_r", "quality_roic_r", "cashflow_to_revenue_r", "low_debt_r"} <= rank_names
+
+
+def test_fixed_spec_parser_resolves_quality_scope_formula_without_inline_weights():
+    spec = dynamic.spec_from_config(
+        {
+            "formula": "cashflow_quality_pullback",
+            "market_filter": "sw_top_mom_63_pos",
+            "top_n": 1,
+            "min_amount": 50_000_000,
+            "min_price": 3.0,
+            "trend_filter": "none",
+            "min_hold_days": 2,
+            "max_hold_days": 10,
+            "replace_count": 1,
+            "stop_loss": None,
+        }
+    )
+
+    assert spec.formula.name == "cashflow_quality_pullback"
+    assert "cashflow_to_revenue_r" in spec.formula.weights
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -383,4 +453,7 @@ if __name__ == "__main__":
     test_regime_grid_requires_explicit_risk_state()
     test_symbol_valuation_features_use_backward_asof_only()
     test_valuation_formula_scope_exposes_value_factors()
+    test_symbol_financial_features_use_notice_date_backward_asof_only()
+    test_quality_formula_scope_exposes_financial_quality_factors()
+    test_fixed_spec_parser_resolves_quality_scope_formula_without_inline_weights()
     test_strict_window_metrics_replays_from_window_start()

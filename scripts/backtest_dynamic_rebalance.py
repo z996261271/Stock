@@ -163,6 +163,14 @@ RANK_MAP = {
     "low_pe_ttm_r": ("pe_ttm_asof", False),
     "low_pb_r": ("pb_asof", False),
     "small_mcap_value_r": ("total_market_cap_asof", False),
+    "quality_roe_r": ("roe_asof", True),
+    "quality_roic_r": ("roic_asof", True),
+    "gross_margin_r": ("gross_margin_asof", True),
+    "net_margin_r": ("net_margin_asof", True),
+    "cashflow_to_revenue_r": ("operating_cashflow_to_revenue_asof", True),
+    "revenue_growth_r": ("revenue_growth_yoy_asof", True),
+    "profit_growth_r": ("profit_growth_yoy_asof", True),
+    "low_debt_r": ("debt_asset_ratio_asof", False),
     "ind_mom_126_21_r": ("ind_mom_126_21", True),
     "ind_rev_5_r": ("ind_rev_5", True),
     "ind_lowvol_63_r": ("ind_lowvol_63", True),
@@ -317,7 +325,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
     parser.add_argument(
         "--formula-scope",
-        choices=["selected", "all", "new_price_volume", "valuation"],
+        choices=["selected", "all", "new_price_volume", "valuation", "quality"],
         default="selected",
         help="selected keeps the search small around historically stable formulas",
     )
@@ -456,10 +464,86 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
             },
         ),
     ]
+    quality_formulas = [
+        Formula(
+            "quality_value_compounder",
+            {
+                "quality_roe_r": 0.20,
+                "quality_roic_r": 0.15,
+                "gross_margin_r": 0.15,
+                "low_pb_r": 0.15,
+                "low_debt_r": 0.10,
+                "mom_126_21_r": 0.15,
+                "lowvol_63_r": 0.10,
+            },
+        ),
+        Formula(
+            "cashflow_quality_pullback",
+            {
+                "cashflow_to_revenue_r": 0.20,
+                "quality_roe_r": 0.15,
+                "net_margin_r": 0.15,
+                "rev_5_r": 0.15,
+                "low_turnover_21_r": 0.15,
+                "low_pe_ttm_r": 0.10,
+                "low_debt_r": 0.10,
+            },
+        ),
+        Formula(
+            "quality_growth_reacceleration",
+            {
+                "profit_growth_r": 0.20,
+                "revenue_growth_r": 0.15,
+                "quality_roic_r": 0.15,
+                "money_strength_21_r": 0.15,
+                "mom_21_r": 0.15,
+                "low_idio_vol_63_r": 0.10,
+                "low_debt_r": 0.10,
+            },
+        ),
+        Formula(
+            "cashflow_defensive_quality",
+            {
+                "cashflow_to_revenue_r": 0.20,
+                "quality_roe_r": 0.15,
+                "gross_margin_r": 0.15,
+                "low_debt_r": 0.15,
+                "lowvol_63_r": 0.15,
+                "low_turnover_21_r": 0.10,
+                "mom_126_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "asset_light_quality_trend",
+            {
+                "quality_roic_r": 0.20,
+                "net_margin_r": 0.15,
+                "cashflow_to_revenue_r": 0.15,
+                "revenue_growth_r": 0.15,
+                "low_debt_r": 0.10,
+                "time_series_r": 0.15,
+                "low_idio_vol_63_r": 0.10,
+            },
+        ),
+        Formula(
+            "profit_growth_low_noise",
+            {
+                "profit_growth_r": 0.20,
+                "quality_roe_r": 0.15,
+                "low_debt_r": 0.15,
+                "lowvol_63_r": 0.15,
+                "lowmax_21_r": 0.10,
+                "money_strength_21_r": 0.15,
+                "turnover_contract_21_63_r": 0.10,
+            },
+        ),
+    ]
+    if scope == "quality":
+        return quality_formulas
     if scope == "valuation":
         return valuation_formulas
     if scope == "all":
-        return [*pool, *valuation_formulas]
+        return [*pool, *valuation_formulas, *quality_formulas]
     if scope == "new_price_volume":
         selected = {
             "low_beta_pullback_trend",
@@ -662,6 +746,8 @@ def spec_from_config(data: dict[str, Any]) -> DynamicSpec:
     if not formula_name:
         raise ValueError("fixed spec requires formula")
     formula_by_name = {formula.name: formula for formula in formulas("expanded")}
+    for scope in ("valuation", "quality", "all"):
+        formula_by_name.update({formula.name: formula for formula in selected_formulas("expanded", scope)})
     formula = formula_by_name.get(formula_name)
     if formula is None:
         weights = data.get("weights")
@@ -1012,6 +1098,66 @@ def load_symbol_valuation(
     return frame.dropna(subset=["symbol", "trade_date"]).sort_values(["symbol", "trade_date"])
 
 
+FINANCIAL_ASOF_COLUMNS = {
+    "roe_asof",
+    "roic_asof",
+    "gross_margin_asof",
+    "net_margin_asof",
+    "asset_return_asof",
+    "debt_asset_ratio_asof",
+    "revenue_growth_yoy_asof",
+    "profit_growth_yoy_asof",
+    "deduct_profit_growth_yoy_asof",
+    "operating_cashflow_to_revenue_asof",
+}
+
+
+def load_symbol_financials(
+    db: Path,
+    research_start: pd.Timestamp,
+    end_date: pd.Timestamp,
+) -> pd.DataFrame:
+    with sqlite3.connect(db) as conn:
+        has_table = conn.execute(
+            "select 1 from sqlite_master where type = 'table' and name = 'symbol_financial_indicator'"
+        ).fetchone()
+        if has_table is None:
+            return pd.DataFrame()
+        frame = pd.read_sql_query(
+            """
+            select symbol, report_date, notice_date,
+                   roe, roic, gross_margin, net_margin, asset_return, debt_asset_ratio,
+                   revenue_growth_yoy, profit_growth_yoy, deduct_profit_growth_yoy,
+                   operating_cashflow_to_revenue
+            from symbol_financial_indicator
+            where notice_date >= ?
+              and notice_date <= ?
+            order by symbol, notice_date, report_date
+            """,
+            conn,
+            params=((research_start - pd.Timedelta(days=800)).strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")),
+        )
+    if frame.empty:
+        return frame
+    frame["symbol"] = frame["symbol"].astype(str).str.zfill(6)
+    frame["report_date"] = pd.to_datetime(frame["report_date"], errors="coerce")
+    frame["notice_date"] = pd.to_datetime(frame["notice_date"], errors="coerce")
+    for column in [
+        "roe",
+        "roic",
+        "gross_margin",
+        "net_margin",
+        "asset_return",
+        "debt_asset_ratio",
+        "revenue_growth_yoy",
+        "profit_growth_yoy",
+        "deduct_profit_growth_yoy",
+        "operating_cashflow_to_revenue",
+    ]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=["symbol", "notice_date"]).sort_values(["symbol", "notice_date", "report_date"])
+
+
 def add_symbol_valuation_features(df: pd.DataFrame, valuation: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
     valuation_columns = {"pe_ttm_asof", "pb_asof", "total_market_cap_asof"}
     needed = {RANK_MAP[name][0] for name in feature_names if name in RANK_MAP} & valuation_columns
@@ -1054,6 +1200,62 @@ def add_symbol_valuation_features(df: pd.DataFrame, valuation: pd.DataFrame, fea
         return out
     merged = pd.concat(merged_parts, ignore_index=True)
     for column in valuation_columns:
+        if column in merged.columns:
+            out.loc[merged["_row"].to_numpy(), column] = merged[column].to_numpy()
+    return out
+
+
+def add_symbol_financial_features(df: pd.DataFrame, financials: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
+    needed = {RANK_MAP[name][0] for name in feature_names if name in RANK_MAP} & FINANCIAL_ASOF_COLUMNS
+    if not needed:
+        return df
+    out = df.copy()
+    for column in FINANCIAL_ASOF_COLUMNS:
+        if column not in out.columns:
+            out[column] = np.nan
+    if financials.empty:
+        return out
+    source = financials.rename(
+        columns={
+            "notice_date": "trade_date",
+            "roe": "roe_asof",
+            "roic": "roic_asof",
+            "gross_margin": "gross_margin_asof",
+            "net_margin": "net_margin_asof",
+            "asset_return": "asset_return_asof",
+            "debt_asset_ratio": "debt_asset_ratio_asof",
+            "revenue_growth_yoy": "revenue_growth_yoy_asof",
+            "profit_growth_yoy": "profit_growth_yoy_asof",
+            "deduct_profit_growth_yoy": "deduct_profit_growth_yoy_asof",
+            "operating_cashflow_to_revenue": "operating_cashflow_to_revenue_asof",
+        }
+    )
+    source = source[["symbol", "trade_date", *sorted(FINANCIAL_ASOF_COLUMNS)]].dropna(subset=["trade_date"])
+    source_symbols = set(source["symbol"].astype(str))
+    subset = out[out["symbol"].astype(str).isin(source_symbols)].drop(columns=list(FINANCIAL_ASOF_COLUMNS)).reset_index(
+        names="_row"
+    )
+    if subset.empty:
+        return out
+    merged_parts: list[pd.DataFrame] = []
+    source_by_symbol = {symbol: group.sort_values("trade_date") for symbol, group in source.groupby("symbol")}
+    for symbol, group in subset.groupby("symbol"):
+        values = source_by_symbol.get(str(symbol))
+        if values is None or values.empty:
+            continue
+        merged_parts.append(
+            pd.merge_asof(
+                group.sort_values("trade_date"),
+                values.sort_values("trade_date"),
+                on="trade_date",
+                by="symbol",
+                direction="backward",
+            )
+        )
+    if not merged_parts:
+        return out
+    merged = pd.concat(merged_parts, ignore_index=True)
+    for column in FINANCIAL_ASOF_COLUMNS:
         if column in merged.columns:
             out.loc[merged["_row"].to_numpy(), column] = merged[column].to_numpy()
     return out
@@ -2433,6 +2635,8 @@ def main() -> int:
     df, industry_coverage = apply_industry_labels(df, load_symbol_industry_map(args.db))
     symbol_valuation = load_symbol_valuation(args.db, research_start, end_date)
     df = add_symbol_valuation_features(df, symbol_valuation, feature_names)
+    symbol_financials = load_symbol_financials(args.db, research_start, end_date)
+    df = add_symbol_financial_features(df, symbol_financials, feature_names)
     df = add_industry_relative_features(df, feature_names)
     df, constraint_summary = enrich_backtest_constraints(args.db, df, args.board_scope)
     benchmarks = compute_benchmark_suite(args.db, start_date, end_date)
@@ -2491,6 +2695,17 @@ def main() -> int:
         ),
         "asof_rule": "merge_asof by symbol; signal date uses the latest valuation date at or before trade_date",
     }
+    symbol_financial_coverage = {
+        "rows": int(len(symbol_financials)),
+        "symbols": int(symbol_financials["symbol"].nunique()) if not symbol_financials.empty else 0,
+        "min_notice_date": (
+            symbol_financials["notice_date"].min().strftime("%Y-%m-%d") if not symbol_financials.empty else None
+        ),
+        "max_notice_date": (
+            symbol_financials["notice_date"].max().strftime("%Y-%m-%d") if not symbol_financials.empty else None
+        ),
+        "asof_rule": "merge_asof by symbol; signal date uses the latest financial notice date at or before trade_date",
+    }
     del (
         df,
         raw_open_price,
@@ -2505,6 +2720,7 @@ def main() -> int:
         factor_close_price,
         industry_close,
         symbol_valuation,
+        symbol_financials,
     )
     gc.collect()
     print({"D": len(days)}, flush=True)
@@ -2588,6 +2804,7 @@ def main() -> int:
                 "industry_coverage": industry_coverage,
                 "market_valuation_coverage": valuation_coverage,
                 "symbol_valuation_coverage": symbol_valuation_coverage,
+                "symbol_financial_coverage": symbol_financial_coverage,
                 "industry_source": args.industry_source,
                 "industry_filters": sorted(industry_states.keys()),
                 "valuation_filters": sorted(valuation_states.keys()),
@@ -2742,6 +2959,7 @@ def main() -> int:
         "industry_coverage": industry_coverage,
         "market_valuation_coverage": valuation_coverage,
         "symbol_valuation_coverage": symbol_valuation_coverage,
+        "symbol_financial_coverage": symbol_financial_coverage,
         "industry_source": args.industry_source,
         "industry_filters": sorted(industry_states.keys()),
         "valuation_filters": sorted(valuation_states.keys()),
