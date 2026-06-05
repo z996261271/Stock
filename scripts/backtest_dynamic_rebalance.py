@@ -296,7 +296,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument(
         "--score-profile",
-        choices=["robust", "balanced", "aggressive", "return40", "stable40", "stable40q"],
+        choices=["robust", "balanced", "aggressive", "return40", "stable40", "stable40q", "stable40y"],
         default="robust",
     )
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
@@ -418,6 +418,10 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
             "small_cap_dryup_reacceleration",
             "float_cap_repair",
             "drawdown_repair_quality",
+            "steady_trend_low_noise",
+            "small_float_steady_trend",
+            "dryup_trend_quality",
+            "industry_relative_steady_reversal",
         }
         return [formula for formula in pool if formula.name in selected]
     selected = {
@@ -444,6 +448,10 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
         "small_cap_dryup_reacceleration",
         "float_cap_repair",
         "drawdown_repair_quality",
+        "steady_trend_low_noise",
+        "small_float_steady_trend",
+        "dryup_trend_quality",
+        "industry_relative_steady_reversal",
     }
     return [formula for formula in pool if formula.name in selected]
 

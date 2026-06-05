@@ -77,12 +77,40 @@ def test_stable40q_profile_requires_quartered_train_stability():
     assert dynamic.training_score(unstable, "stable40q") == -math.inf
 
 
+def test_stable40y_profile_requires_calendar_year_stability():
+    stable = _row(
+        annual_return=0.32,
+        max_drawdown=-0.34,
+        positive_period_rate=0.49,
+        trade_period_rate=0.35,
+        year_count=10,
+        year_positive_rate=0.70,
+        year_min_annual_return=-0.10,
+        year_median_annual_return=0.12,
+        year_max_annual_return=0.55,
+        year_worst_drawdown=-0.38,
+        year_max_trade_period_rate=0.45,
+    )
+    unstable = dict(stable)
+    unstable["year_min_annual_return"] = -0.40
+    low_return = dict(stable)
+    low_return["annual_return"] = 0.20
+
+    assert math.isfinite(dynamic.training_score(stable, "stable40y"))
+    assert dynamic.training_score(unstable, "stable40y") == -math.inf
+    assert dynamic.training_score(low_return, "stable40y") == -math.inf
+
+
 def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
     formulas = dynamic.selected_formulas("expanded", "new_price_volume")
     names = {formula.name for formula in formulas}
     assert "small_cap_pullback_quality" in names
     assert "small_cap_dryup_reacceleration" in names
     assert "float_cap_repair" in names
+    assert "steady_trend_low_noise" in names
+    assert "small_float_steady_trend" in names
+    assert "dryup_trend_quality" in names
+    assert "industry_relative_steady_reversal" in names
 
     rank_names = {
         rank_name
@@ -179,6 +207,7 @@ if __name__ == "__main__":
     test_return40_profile_rejects_untradable_or_extreme_candidates()
     test_stable40_profile_requires_internal_train_stability()
     test_stable40q_profile_requires_quartered_train_stability()
+    test_stable40y_profile_requires_calendar_year_stability()
     test_new_price_volume_scope_includes_scan_ready_float_cap_formulas()
     test_market_valuation_states_use_rolling_history_only()
     test_credible_grid_includes_market_valuation_filters()

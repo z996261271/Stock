@@ -128,6 +128,38 @@ def training_score(row: dict[str, Any], profile: str) -> float:
             + 0.05 * positive_rate
             - 0.04 * trade_rate
         )
+    if profile == "stable40y":
+        year_count = int(row.get("year_count", 0) or 0)
+        year_positive_rate = float(row.get("year_positive_rate", positive_rate))
+        year_min_annual = float(row.get("year_min_annual_return", annual))
+        year_median_annual = float(row.get("year_median_annual_return", annual))
+        year_max_annual = float(row.get("year_max_annual_return", annual))
+        year_worst_drawdown = abs(min(float(row.get("year_worst_drawdown", row["max_drawdown"])), 0.0))
+        year_max_trade = float(row.get("year_max_trade_period_rate", trade_rate))
+        if annual < 0.25 or active_rate < 0.12 or positive_rate < 0.38 or drawdown > 0.75 or trade_rate > 0.90:
+            return -np.inf
+        if year_count >= 8 and (
+            year_positive_rate < 0.58
+            or year_min_annual < -0.35
+            or year_median_annual < 0.08
+            or year_max_annual < 0.40
+            or year_worst_drawdown > 0.58
+            or year_max_trade > 0.88
+        ):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.45 * annual
+            + 0.35 * year_median_annual
+            + 0.20 * year_min_annual
+            + 0.25 * excess_return
+            - 0.20 * target_gap
+            - 0.24 * drawdown
+            - 0.18 * year_worst_drawdown
+            + 0.08 * year_positive_rate
+            - 0.04 * year_max_trade
+        )
     raise ValueError(profile)
 
 
@@ -335,6 +367,7 @@ def ranked_series_results(
     """Rank precomputed spec series for one training mask."""
     results: list[dict[str, Any]] = []
     subperiod_parts = 4 if score_profile == "stable40q" else 2
+    entry_years = pd.DatetimeIndex(entry_dates).year.to_numpy() if score_profile == "stable40y" else None
     for series in series_list:
         row = metrics_from_returns(series.returns, series.active, series.trades, entry_dates, train_mask)
         if not row:
@@ -349,6 +382,17 @@ def ranked_series_results(
                 parts=subperiod_parts,
             )
         )
+        if score_profile == "stable40y":
+            row.update(
+                training_calendar_year_metrics(
+                    series.returns,
+                    series.active,
+                    series.trades,
+                    entry_dates,
+                    train_mask,
+                    entry_years=entry_years,
+                )
+            )
         row["wf_score"] = training_score(row, score_profile)
         if np.isfinite(row["wf_score"]):
             row.update(spec_to_row(series.spec))
@@ -399,6 +443,53 @@ def training_subperiod_metrics(
         "subperiod_min_positive_period_rate": float(min(positive_rates)),
         "subperiod_min_active_period_rate": float(min(active_rates)),
         "subperiod_max_trade_period_rate": float(max(trade_rates)),
+    }
+
+
+def training_calendar_year_metrics(
+    returns: np.ndarray,
+    active: np.ndarray,
+    trades: np.ndarray,
+    entry_dates: np.ndarray,
+    train_mask: np.ndarray,
+    entry_years: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Summarize training stability by calendar year inside the training window."""
+    indices = np.flatnonzero(train_mask)
+    if len(indices) == 0:
+        return {"year_count": 0}
+    if entry_years is None:
+        entry_years = pd.DatetimeIndex(entry_dates).year.to_numpy()
+    years = entry_years[indices]
+    annual_returns: list[float] = []
+    drawdowns: list[float] = []
+    positive_rates: list[float] = []
+    active_rates: list[float] = []
+    trade_rates: list[float] = []
+    for year in sorted(set(int(value) for value in years)):
+        year_mask = train_mask & (entry_years == year)
+        metrics = metrics_from_returns(returns, active, trades, entry_dates, year_mask)
+        if not metrics:
+            continue
+        annual_returns.append(float(metrics["annual_return"]))
+        drawdowns.append(float(metrics["max_drawdown"]))
+        positive_rates.append(float(metrics["positive_period_rate"]))
+        active_rates.append(float(metrics["active_period_rate"]))
+        trade_rates.append(float(metrics["trade_period_rate"]))
+    if not annual_returns:
+        return {"year_count": 0}
+    annual_array = np.asarray(annual_returns, dtype=np.float64)
+    return {
+        "year_count": int(len(annual_returns)),
+        "year_positive_count": int(np.sum(annual_array > 0.0)),
+        "year_positive_rate": float(np.mean(annual_array > 0.0)),
+        "year_min_annual_return": float(np.min(annual_array)),
+        "year_median_annual_return": float(np.median(annual_array)),
+        "year_max_annual_return": float(np.max(annual_array)),
+        "year_worst_drawdown": float(min(drawdowns)),
+        "year_min_positive_period_rate": float(min(positive_rates)),
+        "year_min_active_period_rate": float(min(active_rates)),
+        "year_max_trade_period_rate": float(max(trade_rates)),
     }
 
 

@@ -670,6 +670,50 @@ def formulas(formula_set: str = "expanded") -> list[Formula]:
                 "liq_21_r": 0.10,
             },
         ),
+        Formula(
+            "steady_trend_low_noise",
+            {
+                "mom_126_21_r": 0.25,
+                "near_high_126_r": 0.20,
+                "time_series_r": 0.20,
+                "lowvol_63_r": 0.15,
+                "lowmax_21_r": 0.10,
+                "low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "small_float_steady_trend",
+            {
+                "small_float_cap_21_r": 0.20,
+                "mom_126_21_r": 0.20,
+                "near_high_126_r": 0.20,
+                "time_series_r": 0.15,
+                "lowvol_63_r": 0.15,
+                "low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "dryup_trend_quality",
+            {
+                "amount_contract_21_63_r": 0.20,
+                "turnover_contract_21_63_r": 0.15,
+                "near_high_63_r": 0.20,
+                "mom_21_r": 0.15,
+                "money_strength_21_r": 0.15,
+                "low_idio_vol_63_r": 0.15,
+            },
+        ),
+        Formula(
+            "industry_relative_steady_reversal",
+            {
+                "ind_mom_126_21_r": 0.20,
+                "ind_rev_5_r": 0.20,
+                "time_series_r": 0.20,
+                "ind_lowvol_63_r": 0.15,
+                "ind_lowmax_21_r": 0.15,
+                "ind_low_turnover_21_r": 0.10,
+            },
+        ),
     ]
     if formula_set == "base":
         return base

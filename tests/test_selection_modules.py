@@ -14,6 +14,7 @@ from professional_quant.backtest.selection import (  # noqa: E402
     choose_yearly_specs_from_series,
     metrics_from_returns,
     spec_to_row,
+    training_calendar_year_metrics,
     training_subperiod_metrics,
     training_score,
 )
@@ -98,6 +99,30 @@ def test_stable40q_profile_requires_four_part_training_stability():
     assert training_score(unstable, "stable40q") == -math.inf
 
 
+def test_stable40y_profile_requires_calendar_year_stability():
+    stable = _row(
+        annual_return=0.32,
+        max_drawdown=-0.34,
+        positive_period_rate=0.49,
+        trade_period_rate=0.35,
+        year_count=10,
+        year_positive_rate=0.70,
+        year_min_annual_return=-0.10,
+        year_median_annual_return=0.12,
+        year_max_annual_return=0.55,
+        year_worst_drawdown=-0.38,
+        year_max_trade_period_rate=0.45,
+    )
+    unstable = dict(stable)
+    unstable["year_positive_rate"] = 0.50
+    low_return = dict(stable)
+    low_return["annual_return"] = 0.20
+
+    assert math.isfinite(training_score(stable, "stable40y"))
+    assert training_score(unstable, "stable40y") == -math.inf
+    assert training_score(low_return, "stable40y") == -math.inf
+
+
 def test_training_subperiod_metrics_summarize_halves():
     metrics = training_subperiod_metrics(
         np.asarray([0.02, 0.02, -0.02, -0.02], dtype=np.float32),
@@ -110,6 +135,20 @@ def test_training_subperiod_metrics_summarize_halves():
     assert metrics["subperiod_count"] == 2
     assert metrics["subperiod_min_annual_return"] < 0
     assert metrics["subperiod_worst_drawdown"] < 0
+
+
+def test_training_calendar_year_metrics_summarize_years():
+    metrics = training_calendar_year_metrics(
+        np.asarray([0.02, 0.02, -0.02, -0.02], dtype=np.float32),
+        np.asarray([True, True, True, True]),
+        np.asarray([True, False, True, False]),
+        np.asarray(["2020-01-02", "2020-01-03", "2021-01-06", "2021-01-07"], dtype="datetime64[ns]"),
+        np.asarray([True, True, True, True]),
+    )
+
+    assert metrics["year_count"] == 2
+    assert metrics["year_positive_count"] == 1
+    assert metrics["year_min_annual_return"] < 0
 
 
 @dataclass
@@ -192,5 +231,7 @@ if __name__ == "__main__":
     test_selection_helpers_compute_metrics_score_and_spec_rows()
     test_stable40_profile_penalizes_bad_training_subperiods()
     test_stable40q_profile_requires_four_part_training_stability()
+    test_stable40y_profile_requires_calendar_year_stability()
     test_training_subperiod_metrics_summarize_halves()
+    test_training_calendar_year_metrics_summarize_years()
     test_choose_yearly_specs_from_series_freezes_after_selection_date()
