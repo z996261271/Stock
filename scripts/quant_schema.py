@@ -100,6 +100,22 @@ def ensure_quant_schema(conn: sqlite3.Connection) -> None:
             fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS symbol_valuation_daily (
+            symbol TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            pe_ttm REAL,
+            pe_static REAL,
+            pb REAL,
+            pcf REAL,
+            total_market_cap REAL,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, trade_date)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_symbol_valuation_daily_date
+            ON symbol_valuation_daily (trade_date);
+
         CREATE TABLE IF NOT EXISTS signals (
             signal_id TEXT PRIMARY KEY,
             run_id TEXT,

@@ -160,6 +160,9 @@ RANK_MAP = {
     "low_beta_63_r": ("beta_63", False),
     "low_idio_vol_63_r": ("idio_vol_63", False),
     "deep_drawdown_63_r": ("drawdown_63", False),
+    "low_pe_ttm_r": ("pe_ttm_asof", False),
+    "low_pb_r": ("pb_asof", False),
+    "small_mcap_value_r": ("total_market_cap_asof", False),
     "ind_mom_126_21_r": ("ind_mom_126_21", True),
     "ind_rev_5_r": ("ind_rev_5", True),
     "ind_lowvol_63_r": ("ind_lowvol_63", True),
@@ -314,7 +317,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
     parser.add_argument(
         "--formula-scope",
-        choices=["selected", "all", "new_price_volume"],
+        choices=["selected", "all", "new_price_volume", "valuation"],
         default="selected",
         help="selected keeps the search small around historically stable formulas",
     )
@@ -419,8 +422,44 @@ G_EXECUTION = default_execution_config()
 
 def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
     pool = formulas(formula_set)
+    valuation_formulas = [
+        Formula(
+            "valuation_low_pe_pb",
+            {
+                "low_pe_ttm_r": 0.35,
+                "low_pb_r": 0.25,
+                "mom_126_21_r": 0.20,
+                "lowvol_63_r": 0.10,
+                "liq_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "valuation_quality_pullback",
+            {
+                "low_pe_ttm_r": 0.25,
+                "low_pb_r": 0.20,
+                "time_series_r": 0.20,
+                "rev_5_r": 0.15,
+                "low_turnover_21_r": 0.10,
+                "lowvol_63_r": 0.10,
+            },
+        ),
+        Formula(
+            "small_value_reacceleration",
+            {
+                "small_mcap_value_r": 0.25,
+                "low_pe_ttm_r": 0.20,
+                "money_strength_21_r": 0.20,
+                "mom_21_r": 0.15,
+                "low_idio_vol_63_r": 0.10,
+                "low_pb_r": 0.10,
+            },
+        ),
+    ]
+    if scope == "valuation":
+        return valuation_formulas
     if scope == "all":
-        return pool
+        return [*pool, *valuation_formulas]
     if scope == "new_price_volume":
         selected = {
             "low_beta_pullback_trend",
@@ -940,6 +979,84 @@ def load_market_valuation(
     frame["middle_pe_ttm"] = pd.to_numeric(frame["middle_pe_ttm"], errors="coerce")
     frame["middle_pb"] = pd.to_numeric(frame["middle_pb"], errors="coerce")
     return frame.dropna(subset=["trade_date"]).sort_values("trade_date")
+
+
+def load_symbol_valuation(
+    db: Path,
+    research_start: pd.Timestamp,
+    end_date: pd.Timestamp,
+) -> pd.DataFrame:
+    with sqlite3.connect(db) as conn:
+        has_table = conn.execute(
+            "select 1 from sqlite_master where type = 'table' and name = 'symbol_valuation_daily'"
+        ).fetchone()
+        if has_table is None:
+            return pd.DataFrame()
+        frame = pd.read_sql_query(
+            """
+            select symbol, trade_date, pe_ttm, pb, total_market_cap
+            from symbol_valuation_daily
+            where trade_date >= ?
+              and trade_date <= ?
+            order by symbol, trade_date
+            """,
+            conn,
+            params=((research_start - pd.Timedelta(days=370)).strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")),
+        )
+    if frame.empty:
+        return frame
+    frame["symbol"] = frame["symbol"].astype(str).str.zfill(6)
+    frame["trade_date"] = pd.to_datetime(frame["trade_date"])
+    for column in ["pe_ttm", "pb", "total_market_cap"]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=["symbol", "trade_date"]).sort_values(["symbol", "trade_date"])
+
+
+def add_symbol_valuation_features(df: pd.DataFrame, valuation: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
+    valuation_columns = {"pe_ttm_asof", "pb_asof", "total_market_cap_asof"}
+    needed = {RANK_MAP[name][0] for name in feature_names if name in RANK_MAP} & valuation_columns
+    if not needed:
+        return df
+    out = df.copy()
+    for column in valuation_columns:
+        if column not in out.columns:
+            out[column] = np.nan
+    if valuation.empty:
+        return out
+    source = valuation.rename(
+        columns={
+            "pe_ttm": "pe_ttm_asof",
+            "pb": "pb_asof",
+            "total_market_cap": "total_market_cap_asof",
+        }
+    )
+    source = source[["symbol", "trade_date", *sorted(valuation_columns)]].dropna(subset=["trade_date"])
+    source_symbols = set(source["symbol"].astype(str))
+    subset = out[out["symbol"].astype(str).isin(source_symbols)].drop(columns=list(valuation_columns)).reset_index(names="_row")
+    if subset.empty:
+        return out
+    merged_parts: list[pd.DataFrame] = []
+    source_by_symbol = {symbol: group.sort_values("trade_date") for symbol, group in source.groupby("symbol")}
+    for symbol, group in subset.groupby("symbol"):
+        values = source_by_symbol.get(str(symbol))
+        if values is None or values.empty:
+            continue
+        merged_parts.append(
+            pd.merge_asof(
+                group.sort_values("trade_date"),
+                values.sort_values("trade_date"),
+                on="trade_date",
+                by="symbol",
+                direction="backward",
+            )
+        )
+    if not merged_parts:
+        return out
+    merged = pd.concat(merged_parts, ignore_index=True)
+    for column in valuation_columns:
+        if column in merged.columns:
+            out.loc[merged["_row"].to_numpy(), column] = merged[column].to_numpy()
+    return out
 
 
 def _rolling_last_percentile(series: pd.Series, window: int = 756, min_periods: int = 252) -> pd.Series:
@@ -2314,6 +2431,8 @@ def main() -> int:
         allow_factor_fallback=not args.strict_factor_adjust,
     )
     df, industry_coverage = apply_industry_labels(df, load_symbol_industry_map(args.db))
+    symbol_valuation = load_symbol_valuation(args.db, research_start, end_date)
+    df = add_symbol_valuation_features(df, symbol_valuation, feature_names)
     df = add_industry_relative_features(df, feature_names)
     df, constraint_summary = enrich_backtest_constraints(args.db, df, args.board_scope)
     benchmarks = compute_benchmark_suite(args.db, start_date, end_date)
@@ -2361,6 +2480,17 @@ def main() -> int:
         "states": {name: int(len(dates)) for name, dates in valuation_states.items()},
         "percentile_rule": "rolling 756 trading days, minimum 252; current signal date and earlier only",
     }
+    symbol_valuation_coverage = {
+        "rows": int(len(symbol_valuation)),
+        "symbols": int(symbol_valuation["symbol"].nunique()) if not symbol_valuation.empty else 0,
+        "min_trade_date": (
+            symbol_valuation["trade_date"].min().strftime("%Y-%m-%d") if not symbol_valuation.empty else None
+        ),
+        "max_trade_date": (
+            symbol_valuation["trade_date"].max().strftime("%Y-%m-%d") if not symbol_valuation.empty else None
+        ),
+        "asof_rule": "merge_asof by symbol; signal date uses the latest valuation date at or before trade_date",
+    }
     del (
         df,
         raw_open_price,
@@ -2374,6 +2504,7 @@ def main() -> int:
         signal_allowed,
         factor_close_price,
         industry_close,
+        symbol_valuation,
     )
     gc.collect()
     print({"D": len(days)}, flush=True)
@@ -2456,6 +2587,7 @@ def main() -> int:
                 "constraint_summary": constraint_summary,
                 "industry_coverage": industry_coverage,
                 "market_valuation_coverage": valuation_coverage,
+                "symbol_valuation_coverage": symbol_valuation_coverage,
                 "industry_source": args.industry_source,
                 "industry_filters": sorted(industry_states.keys()),
                 "valuation_filters": sorted(valuation_states.keys()),
@@ -2609,6 +2741,7 @@ def main() -> int:
         "constraint_summary": constraint_summary,
         "industry_coverage": industry_coverage,
         "market_valuation_coverage": valuation_coverage,
+        "symbol_valuation_coverage": symbol_valuation_coverage,
         "industry_source": args.industry_source,
         "industry_filters": sorted(industry_states.keys()),
         "valuation_filters": sorted(valuation_states.keys()),

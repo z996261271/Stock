@@ -282,6 +282,40 @@ def test_regime_grid_requires_explicit_risk_state():
     assert values["min_prices"] == [10.0]
 
 
+def test_symbol_valuation_features_use_backward_asof_only():
+    bars = pd.DataFrame(
+        {
+            "symbol": ["600519", "600519", "600519", "000001"],
+            "trade_date": pd.to_datetime(["2020-01-02", "2020-01-10", "2020-01-20", "2020-01-10"]),
+        }
+    )
+    valuation = pd.DataFrame(
+        {
+            "symbol": ["600519", "600519"],
+            "trade_date": pd.to_datetime(["2020-01-05", "2020-01-15"]),
+            "pe_ttm": [10.0, 20.0],
+            "pb": [1.0, 2.0],
+            "total_market_cap": [100.0, 200.0],
+        }
+    )
+
+    out = dynamic.add_symbol_valuation_features(bars, valuation, ["low_pe_ttm_r", "low_pb_r"])
+
+    assert pd.isna(out.loc[0, "pe_ttm_asof"])
+    assert out.loc[1, "pe_ttm_asof"] == 10.0
+    assert out.loc[2, "pe_ttm_asof"] == 20.0
+    assert pd.isna(out.loc[3, "pe_ttm_asof"])
+
+
+def test_valuation_formula_scope_exposes_value_factors():
+    formulas = dynamic.selected_formulas("expanded", "valuation")
+    names = {formula.name for formula in formulas}
+    rank_names = {rank for formula in formulas for rank in formula.weights}
+
+    assert names == {"valuation_low_pe_pb", "valuation_quality_pullback", "small_value_reacceleration"}
+    assert {"low_pe_ttm_r", "low_pb_r", "small_mcap_value_r"} <= rank_names
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -347,4 +381,6 @@ if __name__ == "__main__":
     test_credible_grid_includes_market_valuation_filters()
     test_combined_market_states_are_intersections()
     test_regime_grid_requires_explicit_risk_state()
+    test_symbol_valuation_features_use_backward_asof_only()
+    test_valuation_formula_scope_exposes_value_factors()
     test_strict_window_metrics_replays_from_window_start()
