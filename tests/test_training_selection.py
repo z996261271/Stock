@@ -386,6 +386,42 @@ def test_fixed_spec_parser_resolves_quality_scope_formula_without_inline_weights
     assert "cashflow_to_revenue_r" in spec.formula.weights
 
 
+def test_train_diag_scope_exposes_train_only_diagnostic_formulas():
+    formulas = dynamic.selected_formulas("expanded", "train_diag")
+    names = {formula.name for formula in formulas}
+    rank_names = {rank for formula in formulas for rank in formula.weights}
+
+    assert names == {
+        "train_diag_reversal_low_noise",
+        "train_diag_industry_reversal_dryup",
+        "train_diag_liquidity_contraction",
+        "train_diag_defensive_reversal",
+        "train_diag_stable_reversal",
+        "train_diag_stable_reversal_20d",
+    }
+    assert {"rev_20_r", "low_idio_vol_63_r", "lowliq_21_r", "low_turnover_21_r"} <= rank_names
+
+
+def test_fixed_spec_parser_resolves_train_diag_formula_without_inline_weights():
+    spec = dynamic.spec_from_config(
+        {
+            "formula": "train_diag_reversal_low_noise",
+            "market_filter": "none",
+            "top_n": 1,
+            "min_amount": 50_000_000,
+            "min_price": 3.0,
+            "trend_filter": "none",
+            "min_hold_days": 2,
+            "max_hold_days": 10,
+            "replace_count": 1,
+            "stop_loss": None,
+        }
+    )
+
+    assert spec.formula.name == "train_diag_reversal_low_noise"
+    assert "rev_20_r" in spec.formula.weights
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -456,4 +492,6 @@ if __name__ == "__main__":
     test_symbol_financial_features_use_notice_date_backward_asof_only()
     test_quality_formula_scope_exposes_financial_quality_factors()
     test_fixed_spec_parser_resolves_quality_scope_formula_without_inline_weights()
+    test_train_diag_scope_exposes_train_only_diagnostic_formulas()
+    test_fixed_spec_parser_resolves_train_diag_formula_without_inline_weights()
     test_strict_window_metrics_replays_from_window_start()

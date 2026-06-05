@@ -325,7 +325,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
     parser.add_argument(
         "--formula-scope",
-        choices=["selected", "all", "new_price_volume", "valuation", "quality"],
+        choices=["selected", "all", "new_price_volume", "valuation", "quality", "train_diag"],
         default="selected",
         help="selected keeps the search small around historically stable formulas",
     )
@@ -538,12 +538,79 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
             },
         ),
     ]
+    train_diag_formulas = [
+        Formula(
+            "train_diag_reversal_low_noise",
+            {
+                "rev_20_r": 0.25,
+                "low_idio_vol_63_r": 0.20,
+                "lowliq_21_r": 0.15,
+                "low_turnover_21_r": 0.15,
+                "lowmax_21_r": 0.15,
+                "turnover_contract_21_63_r": 0.10,
+            },
+        ),
+        Formula(
+            "train_diag_industry_reversal_dryup",
+            {
+                "ind_low_turnover_21_r": 0.20,
+                "ind_rev_5_r": 0.20,
+                "ind_lowmax_21_r": 0.15,
+                "low_idio_vol_63_r": 0.15,
+                "rev_20_r": 0.15,
+                "amount_contract_21_63_r": 0.15,
+            },
+        ),
+        Formula(
+            "train_diag_liquidity_contraction",
+            {
+                "lowliq_21_r": 0.20,
+                "turnover_contract_21_63_r": 0.20,
+                "amount_contract_21_63_r": 0.15,
+                "cap_contract_21_63_r": 0.15,
+                "rev_20_r": 0.15,
+                "lowvol_63_r": 0.15,
+            },
+        ),
+        Formula(
+            "train_diag_defensive_reversal",
+            {
+                "rev_20_r": 0.20,
+                "low_idio_vol_63_r": 0.20,
+                "lowvol_63_r": 0.15,
+                "deep_drawdown_63_r": 0.15,
+                "lowmax_21_r": 0.15,
+                "low_turnover_21_r": 0.15,
+            },
+        ),
+        Formula(
+            "train_diag_stable_reversal",
+            {
+                "rev_20_r": 0.40,
+                "low_turnover_21_r": 0.30,
+                "ind_low_turnover_21_r": 0.30,
+            },
+        ),
+        Formula(
+            "train_diag_stable_reversal_20d",
+            {
+                "rev_20_r": 0.25,
+                "low_turnover_21_r": 0.20,
+                "ind_low_turnover_21_r": 0.20,
+                "lowmax_21_r": 0.15,
+                "ind_lowmax_21_r": 0.10,
+                "rev_10_r": 0.10,
+            },
+        ),
+    ]
+    if scope == "train_diag":
+        return train_diag_formulas
     if scope == "quality":
         return quality_formulas
     if scope == "valuation":
         return valuation_formulas
     if scope == "all":
-        return [*pool, *valuation_formulas, *quality_formulas]
+        return [*pool, *valuation_formulas, *quality_formulas, *train_diag_formulas]
     if scope == "new_price_volume":
         selected = {
             "low_beta_pullback_trend",
@@ -746,7 +813,7 @@ def spec_from_config(data: dict[str, Any]) -> DynamicSpec:
     if not formula_name:
         raise ValueError("fixed spec requires formula")
     formula_by_name = {formula.name: formula for formula in formulas("expanded")}
-    for scope in ("valuation", "quality", "all"):
+    for scope in ("valuation", "quality", "train_diag", "all"):
         formula_by_name.update({formula.name: formula for formula in selected_formulas("expanded", scope)})
     formula = formula_by_name.get(formula_name)
     if formula is None:
