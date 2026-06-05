@@ -101,6 +101,33 @@ def training_score(row: dict[str, Any], profile: str) -> float:
             + 0.04 * positive_rate
             - 0.03 * trade_rate
         )
+    if profile == "stable40q":
+        min_sub_annual = float(row.get("subperiod_min_annual_return", annual))
+        worst_sub_drawdown = abs(min(float(row.get("subperiod_worst_drawdown", row["max_drawdown"])), 0.0))
+        min_sub_positive = float(row.get("subperiod_min_positive_period_rate", positive_rate))
+        max_sub_trade = float(row.get("subperiod_max_trade_period_rate", trade_rate))
+        subperiod_count = int(row.get("subperiod_count", 0) or 0)
+        if active_rate < 0.12 or positive_rate < 0.38 or drawdown > 0.70 or trade_rate > 0.90:
+            return -np.inf
+        if subperiod_count >= 4 and (
+            min_sub_annual < -0.04
+            or min_sub_positive < 0.33
+            or worst_sub_drawdown > 0.68
+            or max_sub_trade > 0.88
+        ):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.55 * annual
+            + 0.45 * min_sub_annual
+            + 0.25 * excess_return
+            - 0.22 * target_gap
+            - 0.28 * drawdown
+            - 0.20 * worst_sub_drawdown
+            + 0.05 * positive_rate
+            - 0.04 * trade_rate
+        )
     raise ValueError(profile)
 
 
@@ -307,11 +334,21 @@ def ranked_series_results(
 ) -> list[dict[str, Any]]:
     """Rank precomputed spec series for one training mask."""
     results: list[dict[str, Any]] = []
+    subperiod_parts = 4 if score_profile == "stable40q" else 2
     for series in series_list:
         row = metrics_from_returns(series.returns, series.active, series.trades, entry_dates, train_mask)
         if not row:
             continue
-        row.update(training_subperiod_metrics(series.returns, series.active, series.trades, entry_dates, train_mask))
+        row.update(
+            training_subperiod_metrics(
+                series.returns,
+                series.active,
+                series.trades,
+                entry_dates,
+                train_mask,
+                parts=subperiod_parts,
+            )
+        )
         row["wf_score"] = training_score(row, score_profile)
         if np.isfinite(row["wf_score"]):
             row.update(spec_to_row(series.spec))

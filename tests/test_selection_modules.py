@@ -79,6 +79,25 @@ def test_stable40_profile_penalizes_bad_training_subperiods():
     assert training_score(unstable, "stable40") == -math.inf
 
 
+def test_stable40q_profile_requires_four_part_training_stability():
+    stable = _row(
+        annual_return=0.34,
+        max_drawdown=-0.32,
+        positive_period_rate=0.49,
+        trade_period_rate=0.30,
+        subperiod_count=4,
+        subperiod_min_annual_return=0.04,
+        subperiod_worst_drawdown=-0.42,
+        subperiod_min_positive_period_rate=0.43,
+        subperiod_max_trade_period_rate=0.45,
+    )
+    unstable = dict(stable)
+    unstable["subperiod_min_annual_return"] = -0.05
+
+    assert math.isfinite(training_score(stable, "stable40q"))
+    assert training_score(unstable, "stable40q") == -math.inf
+
+
 def test_training_subperiod_metrics_summarize_halves():
     metrics = training_subperiod_metrics(
         np.asarray([0.02, 0.02, -0.02, -0.02], dtype=np.float32),
@@ -172,5 +191,6 @@ def test_choose_yearly_specs_from_series_freezes_after_selection_date():
 if __name__ == "__main__":
     test_selection_helpers_compute_metrics_score_and_spec_rows()
     test_stable40_profile_penalizes_bad_training_subperiods()
+    test_stable40q_profile_requires_four_part_training_stability()
     test_training_subperiod_metrics_summarize_halves()
     test_choose_yearly_specs_from_series_freezes_after_selection_date()

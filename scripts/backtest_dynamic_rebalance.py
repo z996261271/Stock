@@ -294,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument(
         "--score-profile",
-        choices=["robust", "balanced", "aggressive", "return40", "stable40"],
+        choices=["robust", "balanced", "aggressive", "return40", "stable40", "stable40q"],
         default="robust",
     )
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
@@ -1923,6 +1923,30 @@ def run_walkforward(
         initial_cash=initial_cash,
     )
 
+
+def output_prefix(
+    args: argparse.Namespace,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    fixed_spec_data: dict[str, Any] | None,
+) -> Path:
+    run_suffix = ""
+    if fixed_spec_data:
+        fixed_payload = json.dumps(fixed_spec_data, sort_keys=True, ensure_ascii=False)
+        run_suffix = f"_fixed{hashlib.sha1(fixed_payload.encode('utf-8')).hexdigest()[:10]}"
+    if args.skip_capacity_stress:
+        run_suffix += "_nostress"
+    return args.output_dir / (
+        f"dynamic_rebalance_{start_date:%Y%m%d}_{end_date:%Y%m%d}"
+        f"_train{args.train_years}y_top{args.top_n}_{args.score_profile}_{args.formula_set}_{args.formula_scope}"
+        f"_{args.grid_profile}_{args.board_scope}_{args.factor_adjust}"
+        f"_cap{args.capacity_equity_mode}"
+        f"_pstop{args.portfolio_stop_loss:g}"
+        f"_{'sector' if args.industry_source else 'nosector'}"
+        f"{run_suffix}"
+    )
+
+
 def compute_equal_weight_benchmark_from_db(
     db: Path,
     start_date: pd.Timestamp,
@@ -2223,6 +2247,110 @@ def main() -> int:
             args.score_profile,
             freeze_selection_date,
         )
+    if not yearly_specs:
+        prefix = output_prefix(args, start_date, end_date, fixed_spec_data)
+        empty_equity = pd.DataFrame(columns=["date", "equity", "period_return", "active", "trade"])
+        empty_picks = pd.DataFrame()
+        empty_trades = pd.DataFrame()
+        empty_capacity = pd.DataFrame()
+        metrics = {
+            "status": "failed_no_selected_specs",
+            "failure_reason": "selection produced no valid yearly specs under the configured training-only score profile",
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "annual_return": None,
+            "total_return": None,
+            "max_drawdown": None,
+            "multiple_testing": multiple_testing_summary(
+                specs,
+                diagnostics,
+                args.formula_set,
+                args.formula_scope,
+                args.grid_profile,
+                args.score_profile,
+            ),
+            "data_quality_red_flags": list(quality_report.get("red_flags", [])) if quality_report else [],
+            "split_policy": split_policy,
+            "frozen_config": frozen_config,
+            "config": {
+                "strategy": "dynamic_daily_checked_rebalance",
+                "train_years": args.train_years,
+                "min_train_periods": args.min_train_periods,
+                "freeze_selection_date": freeze_selection_date.strftime("%Y-%m-%d")
+                if freeze_selection_date is not None
+                else None,
+                "top_n": args.top_n,
+                "score_profile": args.score_profile,
+                "formula_set": args.formula_set,
+                "formula_scope": args.formula_scope,
+                "grid_profile": args.grid_profile,
+                "board_scope": args.board_scope,
+                "factor_adjust": args.factor_adjust,
+                "factor_adjust_used": factor_adjust_used,
+                "factor_adjust_coverage": factor_adjust_coverage,
+                "factor_adjust_fallback": not args.strict_factor_adjust,
+                "universe_symbols": universe_symbols,
+                "constraint_summary": constraint_summary,
+                "industry_coverage": industry_coverage,
+                "industry_source": args.industry_source,
+                "industry_filters": sorted(industry_states.keys()),
+                "cache_enabled": not args.no_cache,
+                "selection_rule": "each calendar year uses only prior completed training years",
+            },
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        empty_equity.to_csv(prefix.with_suffix(".equity.csv"), index=False)
+        empty_picks.to_csv(prefix.with_suffix(".picks.csv"), index=False)
+        empty_trades.to_csv(prefix.with_suffix(".trades.csv"), index=False)
+        empty_capacity.to_csv(prefix.with_suffix(".capacity_stress.csv"), index=False)
+        diagnostics.to_csv(prefix.with_suffix(".diagnostics.csv"), index=False)
+        metrics_path = prefix.with_suffix(".metrics.json")
+        manifest_path = prefix.with_suffix(".manifest.json")
+        quality_report_path = prefix.with_suffix(".data_quality.json") if quality_report else None
+        if quality_report_path is not None:
+            with quality_report_path.open("w", encoding="utf-8") as fh:
+                json.dump(quality_report, fh, ensure_ascii=False, indent=2)
+        with metrics_path.open("w", encoding="utf-8") as fh:
+            json.dump(metrics, fh, ensure_ascii=False, indent=2)
+        write_manifest(
+            manifest_path,
+            collect_manifest(
+                args.db,
+                sys.argv,
+                [
+                    Path(__file__),
+                    Path(__file__).with_name("backtest_walkforward_no_lookahead.py"),
+                    Path(__file__).with_name("quant_data_quality.py"),
+                    Path(__file__).with_name("quant_universe.py"),
+                    Path(__file__).with_name("run_manifest.py"),
+                ],
+                {
+                    "equity": prefix.with_suffix(".equity.csv"),
+                    "picks": prefix.with_suffix(".picks.csv"),
+                    "trades": prefix.with_suffix(".trades.csv"),
+                    "capacity_stress": prefix.with_suffix(".capacity_stress.csv"),
+                    "diagnostics": prefix.with_suffix(".diagnostics.csv"),
+                    "metrics": metrics_path,
+                    "manifest": manifest_path,
+                    **({"data_quality": quality_report_path} if quality_report_path is not None else {}),
+                },
+                {
+                    "strategy": metrics["config"]["strategy"],
+                    "start_date": metrics["start_date"],
+                    "end_date": metrics["end_date"],
+                    "factor_adjust": args.factor_adjust,
+                    "strict_factor_adjust": args.strict_factor_adjust,
+                    "is_formal_valid": False,
+                    "split_policy": split_policy,
+                    "frozen_config": frozen_config,
+                    "industry_source": args.industry_source,
+                    "max_industry_weight": args.max_industry_weight,
+                    "capacity_equity_mode": args.capacity_equity_mode,
+                },
+            ),
+        )
+        print(json.dumps(metrics, ensure_ascii=False, indent=2), flush=True)
+        return 0
     equity, picks, trade_log, metrics = run_walkforward(days, yearly_specs, market, start_date, end_date, args.initial_cash)
     metrics["professional_metrics"] = professional_performance_metrics(equity, args.initial_cash)
     metrics["professional_metrics"]["relative_to_benchmarks"] = {
@@ -2364,21 +2492,7 @@ def main() -> int:
     }
     metrics["generated_at"] = datetime.now().isoformat(timespec="seconds")
 
-    run_suffix = ""
-    if fixed_spec_data:
-        fixed_payload = json.dumps(fixed_spec_data, sort_keys=True, ensure_ascii=False)
-        run_suffix = f"_fixed{hashlib.sha1(fixed_payload.encode('utf-8')).hexdigest()[:10]}"
-    if args.skip_capacity_stress:
-        run_suffix += "_nostress"
-    prefix = args.output_dir / (
-        f"dynamic_rebalance_{start_date:%Y%m%d}_{end_date:%Y%m%d}"
-        f"_train{args.train_years}y_top{args.top_n}_{args.score_profile}_{args.formula_set}_{args.formula_scope}"
-        f"_{args.grid_profile}_{args.board_scope}_{args.factor_adjust}"
-        f"_cap{args.capacity_equity_mode}"
-        f"_pstop{args.portfolio_stop_loss:g}"
-        f"_{'sector' if args.industry_source else 'nosector'}"
-        f"{run_suffix}"
-    )
+    prefix = output_prefix(args, start_date, end_date, fixed_spec_data)
     equity.to_csv(prefix.with_suffix(".equity.csv"), index=False)
     picks.to_csv(prefix.with_suffix(".picks.csv"), index=False)
     trade_log.to_csv(prefix.with_suffix(".trades.csv"), index=False)
