@@ -307,6 +307,7 @@ def parse_args() -> argparse.Namespace:
             "durable40",
             "recent40",
             "holdout40",
+            "regime40",
         ],
         default="robust",
     )
@@ -319,7 +320,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--grid-profile",
-        choices=["credible", "wide", "smoke"],
+        choices=["credible", "wide", "smoke", "regime"],
         default="credible",
         help="candidate grid size: credible is the default bounded whitelist; wide keeps the old broad search",
     )
@@ -433,6 +434,9 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
             "small_float_steady_trend",
             "dryup_trend_quality",
             "industry_relative_steady_reversal",
+            "quality_dryup_trend",
+            "industry_low_noise_momentum",
+            "capital_light_reacceleration",
         }
         return [formula for formula in pool if formula.name in selected]
     selected = {
@@ -463,6 +467,9 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
         "small_float_steady_trend",
         "dryup_trend_quality",
         "industry_relative_steady_reversal",
+        "quality_dryup_trend",
+        "industry_low_noise_momentum",
+        "capital_light_reacceleration",
     }
     return [formula for formula in pool if formula.name in selected]
 
@@ -509,6 +516,32 @@ def grid_values(profile: str) -> dict[str, list]:
             "trend_filters": ["none"],
             "min_hold_days": [2],
             "max_hold_days": [10],
+            "replace_counts": [1],
+            "stop_losses": [0.10, None],
+        }
+    if profile == "regime":
+        return {
+            "market_filters": [
+                "risk_on",
+                "ret21_63_pos",
+                "ma63_ret63",
+                "sw_eq_ret63_pos",
+                "sw_breadth_ret21_50",
+                "sw_top_mom_63_pos",
+                "valuation_not_high",
+                "valuation_low",
+                "risk_on_valuation_not_high",
+                "ret21_63_pos_valuation_not_high",
+                "ma63_ret63_valuation_not_high",
+                "sw_breadth_ret21_50_valuation_not_high",
+                "risk_on_sw_breadth_ret21_50",
+                "risk_on_sw_top_mom_63_pos",
+            ],
+            "min_amounts": [50_000_000],
+            "min_prices": [10.0],
+            "trend_filters": ["ma126", "ts3"],
+            "min_hold_days": [5],
+            "max_hold_days": [10, 20],
             "replace_counts": [1],
             "stop_losses": [0.10, None],
         }
@@ -940,6 +973,27 @@ def market_valuation_states(valuation: pd.DataFrame) -> dict[str, set[pd.Timesta
         "valuation_low": set(dates[(low_pe & low_pb).fillna(False)]),
         "valuation_not_high": set(dates[(not_high_pe & not_high_pb).fillna(False)]),
     }
+
+
+def add_combined_market_states(market: dict[str, set[pd.Timestamp]]) -> dict[str, set[pd.Timestamp]]:
+    """Add bounded intersections of existing rolling market states."""
+    combinations = {
+        "risk_on_valuation_not_high": ("risk_on", "valuation_not_high"),
+        "ret21_63_pos_valuation_not_high": ("ret21_63_pos", "valuation_not_high"),
+        "ma63_ret63_valuation_not_high": ("ma63_ret63", "valuation_not_high"),
+        "sw_breadth_ret21_50_valuation_not_high": ("sw_breadth_ret21_50", "valuation_not_high"),
+        "risk_on_sw_breadth_ret21_50": ("risk_on", "sw_breadth_ret21_50"),
+        "risk_on_sw_top_mom_63_pos": ("risk_on", "sw_top_mom_63_pos"),
+    }
+    output = dict(market)
+    for name, parts in combinations.items():
+        if all(part in output for part in parts):
+            first, *rest = parts
+            dates = set(output[first])
+            for part in rest:
+                dates &= output[part]
+            output[name] = dates
+    return output
 
 
 def _status_bool(series: pd.Series, default: bool = False) -> pd.Series:
@@ -2281,6 +2335,7 @@ def main() -> int:
     valuation = load_market_valuation(args.db, research_start, end_date)
     valuation_states = market_valuation_states(valuation)
     market.update(valuation_states)
+    market = add_combined_market_states(market)
     G_MARKET = market
     days = build_compact_day_data(
         df,

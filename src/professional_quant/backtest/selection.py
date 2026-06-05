@@ -265,6 +265,45 @@ def training_score(row: dict[str, Any], profile: str) -> float:
             + 0.08 * positive_rate
             - 0.05 * max_sub_trade
         )
+    if profile == "regime40":
+        min_sub_annual = float(row.get("subperiod_min_annual_return", annual))
+        median_sub_annual = float(row.get("subperiod_median_annual_return", annual))
+        last_sub_annual = float(row.get("subperiod_last_annual_return", annual))
+        worst_sub_drawdown = abs(min(float(row.get("subperiod_worst_drawdown", row["max_drawdown"])), 0.0))
+        last_sub_drawdown = abs(min(float(row.get("subperiod_last_drawdown", row["max_drawdown"])), 0.0))
+        min_sub_positive = float(row.get("subperiod_min_positive_period_rate", positive_rate))
+        max_sub_trade = float(row.get("subperiod_max_trade_period_rate", trade_rate))
+        subperiod_count = int(row.get("subperiod_count", 0) or 0)
+        if active_rate < 0.12 or positive_rate < 0.40 or drawdown > 0.52 or trade_rate > 0.50:
+            return -np.inf
+        if annual < 0.10 or period_std > 0.035:
+            return -np.inf
+        if subperiod_count >= 4 and (
+            min_sub_annual < -0.12
+            or median_sub_annual < 0.03
+            or last_sub_annual < 0.08
+            or worst_sub_drawdown > 0.42
+            or last_sub_drawdown > 0.35
+            or min_sub_positive < 0.37
+            or max_sub_trade > 0.50
+        ):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.30 * annual
+            + 0.28 * last_sub_annual
+            + 0.22 * median_sub_annual
+            + 0.12 * min_sub_annual
+            + 0.18 * excess_return
+            - 0.14 * target_gap
+            - 0.22 * drawdown
+            - 0.22 * worst_sub_drawdown
+            - 0.12 * last_sub_drawdown
+            + 0.10 * positive_rate
+            + 0.08 * min_sub_positive
+            - 0.04 * max_sub_trade
+        )
     raise ValueError(profile)
 
 
@@ -400,18 +439,29 @@ def choose_yearly_specs_from_series(
         test_start = max(start_date, pd.Timestamp(year=year, month=1, day=1))
         train_end = test_start - pd.Timedelta(days=1)
         train_start = train_end - pd.DateOffset(years=train_years) + pd.Timedelta(days=1)
-        if freeze_selection_date is not None and test_start > freeze_selection_date and frozen_spec is not None:
-            yearly_specs[year] = frozen_spec
-            diagnostics.append(
-                {
-                    "year": year,
-                    "status": "selected_frozen",
-                    "train_start": frozen_train_start_text,
-                    "train_end": frozen_train_end_text,
-                    "freeze_selection_date": freeze_selection_date.strftime("%Y-%m-%d"),
-                    **spec_to_row(frozen_spec),
-                }
-            )
+        if freeze_selection_date is not None and test_start > freeze_selection_date:
+            if frozen_spec is not None:
+                yearly_specs[year] = frozen_spec
+                diagnostics.append(
+                    {
+                        "year": year,
+                        "status": "selected_frozen",
+                        "train_start": frozen_train_start_text,
+                        "train_end": frozen_train_end_text,
+                        "freeze_selection_date": freeze_selection_date.strftime("%Y-%m-%d"),
+                        **spec_to_row(frozen_spec),
+                    }
+                )
+            else:
+                diagnostics.append(
+                    {
+                        "year": year,
+                        "status": "skipped_frozen_selection_unavailable",
+                        "train_start": frozen_train_start_text,
+                        "train_end": frozen_train_end_text,
+                        "freeze_selection_date": freeze_selection_date.strftime("%Y-%m-%d"),
+                    }
+                )
             continue
         train_mask = (signal_dates >= train_start.to_datetime64()) & (signal_dates <= train_end.to_datetime64())
         if int(np.sum(train_mask)) < min_train_periods:
@@ -471,7 +521,7 @@ def ranked_series_results(
 ) -> list[dict[str, Any]]:
     """Rank precomputed spec series for one training mask."""
     results: list[dict[str, Any]] = []
-    subperiod_parts = 4 if score_profile in {"stable40q", "holdout40"} else 2
+    subperiod_parts = 4 if score_profile in {"stable40q", "holdout40", "regime40"} else 2
     entry_years = pd.DatetimeIndex(entry_dates).year.to_numpy() if score_profile == "stable40y" else None
     for series in series_list:
         row = metrics_from_returns(series.returns, series.active, series.trades, entry_dates, train_mask)

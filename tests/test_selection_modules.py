@@ -311,6 +311,48 @@ def test_choose_yearly_specs_from_series_freezes_after_selection_date():
     assert "validation_annual_return" in diagnostics.columns
 
 
+def test_choose_yearly_specs_does_not_fallback_after_failed_freeze():
+    spec = SimpleNamespace(
+        formula=SimpleNamespace(name="demo", weights={"mom": 1.0}),
+        market_filter="none",
+        top_n=1,
+        min_amount=0.0,
+        min_price=0.0,
+        trend_filter="none",
+        min_hold_days=1,
+        max_hold_days=1,
+        replace_count=1,
+        stop_loss=None,
+    )
+    signal_dates = np.asarray(["2019-01-02", "2019-01-03", "2020-01-02", "2020-01-03"], dtype="datetime64[ns]")
+    entry_dates = np.asarray(["2019-01-03", "2019-01-04", "2020-01-03", "2020-01-06"], dtype="datetime64[ns]")
+
+    yearly, diagnostics = choose_yearly_specs_from_series(
+        series_list=[
+            UnitSeries(
+                spec=spec,
+                returns=np.asarray([0.02, 0.02, 0.03, 0.03], dtype=np.float32),
+                active=np.asarray([True, True, True, True]),
+                trades=np.asarray([True, False, True, False]),
+            ),
+        ],
+        signal_dates=signal_dates,
+        entry_dates=entry_dates,
+        start_date=pd.Timestamp("2020-01-01"),
+        end_date=pd.Timestamp("2020-12-31"),
+        train_years=1,
+        min_train_periods=3,
+        keep_top=1,
+        score_profile="aggressive",
+        freeze_selection_date=pd.Timestamp("2019-12-31"),
+    )
+
+    assert yearly == {}
+    assert "frozen_selection_skipped_insufficient_training_periods" in set(diagnostics["status"])
+    assert "skipped_frozen_selection_unavailable" in set(diagnostics["status"])
+    assert "selected" not in set(diagnostics["status"])
+
+
 if __name__ == "__main__":
     test_selection_helpers_compute_metrics_score_and_spec_rows()
     test_stable40_profile_penalizes_bad_training_subperiods()
@@ -322,3 +364,4 @@ if __name__ == "__main__":
     test_training_subperiod_metrics_summarize_halves()
     test_training_calendar_year_metrics_summarize_years()
     test_choose_yearly_specs_from_series_freezes_after_selection_date()
+    test_choose_yearly_specs_does_not_fallback_after_failed_freeze()

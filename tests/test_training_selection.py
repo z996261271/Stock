@@ -179,6 +179,33 @@ def test_holdout40_profile_requires_four_part_train_holdout_strength():
     assert dynamic.training_score(weak_median, "holdout40") == -math.inf
 
 
+def test_regime40_profile_allows_lower_active_train_regimes():
+    stable = _row(
+        annual_return=0.18,
+        max_drawdown=-0.24,
+        active_period_rate=0.35,
+        positive_period_rate=0.46,
+        trade_period_rate=0.14,
+        period_return_std=0.018,
+        subperiod_count=4,
+        subperiod_last_annual_return=0.18,
+        subperiod_min_annual_return=-0.02,
+        subperiod_median_annual_return=0.09,
+        subperiod_worst_drawdown=-0.25,
+        subperiod_last_drawdown=-0.20,
+        subperiod_min_positive_period_rate=0.43,
+        subperiod_max_trade_period_rate=0.18,
+    )
+    weak_recent = dict(stable)
+    weak_recent["subperiod_last_annual_return"] = 0.02
+    high_drawdown = dict(stable)
+    high_drawdown["subperiod_worst_drawdown"] = -0.50
+
+    assert math.isfinite(dynamic.training_score(stable, "regime40"))
+    assert dynamic.training_score(weak_recent, "regime40") == -math.inf
+    assert dynamic.training_score(high_drawdown, "regime40") == -math.inf
+
+
 def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
     formulas = dynamic.selected_formulas("expanded", "new_price_volume")
     names = {formula.name for formula in formulas}
@@ -189,6 +216,9 @@ def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
     assert "small_float_steady_trend" in names
     assert "dryup_trend_quality" in names
     assert "industry_relative_steady_reversal" in names
+    assert "quality_dryup_trend" in names
+    assert "industry_low_noise_momentum" in names
+    assert "capital_light_reacceleration" in names
 
     rank_names = {
         rank_name
@@ -228,6 +258,28 @@ def test_credible_grid_includes_market_valuation_filters():
 
     assert "valuation_not_high" in values["market_filters"]
     assert "pe_ttm_low" in values["market_filters"]
+
+
+def test_combined_market_states_are_intersections():
+    market = {
+        "risk_on": {pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")},
+        "valuation_not_high": {pd.Timestamp("2020-01-02"), pd.Timestamp("2020-01-03")},
+        "sw_breadth_ret21_50": {pd.Timestamp("2020-01-01")},
+    }
+
+    states = dynamic.add_combined_market_states(market)
+
+    assert states["risk_on_valuation_not_high"] == {pd.Timestamp("2020-01-02")}
+    assert states["risk_on_sw_breadth_ret21_50"] == {pd.Timestamp("2020-01-01")}
+
+
+def test_regime_grid_requires_explicit_risk_state():
+    values = dynamic.grid_values("regime")
+
+    assert "none" not in values["market_filters"]
+    assert "risk_on_valuation_not_high" in values["market_filters"]
+    assert values["min_amounts"] == [50_000_000]
+    assert values["min_prices"] == [10.0]
 
 
 def test_strict_window_metrics_replays_from_window_start():
@@ -289,7 +341,10 @@ if __name__ == "__main__":
     test_durable40_profile_requires_train_subperiod_durability()
     test_recent40_profile_requires_recent_train_strength()
     test_holdout40_profile_requires_four_part_train_holdout_strength()
+    test_regime40_profile_allows_lower_active_train_regimes()
     test_new_price_volume_scope_includes_scan_ready_float_cap_formulas()
     test_market_valuation_states_use_rolling_history_only()
     test_credible_grid_includes_market_valuation_filters()
+    test_combined_market_states_are_intersections()
+    test_regime_grid_requires_explicit_risk_state()
     test_strict_window_metrics_replays_from_window_start()

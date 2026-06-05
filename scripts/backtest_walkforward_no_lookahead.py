@@ -714,6 +714,39 @@ def formulas(formula_set: str = "expanded") -> list[Formula]:
                 "ind_low_turnover_21_r": 0.10,
             },
         ),
+        Formula(
+            "quality_dryup_trend",
+            {
+                "efficiency_21_r": 0.20,
+                "money_strength_21_r": 0.20,
+                "amount_contract_21_63_r": 0.15,
+                "time_series_r": 0.15,
+                "low_idio_vol_63_r": 0.15,
+                "lowmax_21_r": 0.15,
+            },
+        ),
+        Formula(
+            "industry_low_noise_momentum",
+            {
+                "ind_mom_126_21_r": 0.25,
+                "time_series_r": 0.20,
+                "ind_lowvol_63_r": 0.20,
+                "ind_lowmax_21_r": 0.15,
+                "ind_low_turnover_21_r": 0.10,
+                "money_strength_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "capital_light_reacceleration",
+            {
+                "small_float_cap_21_r": 0.20,
+                "cap_contract_21_63_r": 0.20,
+                "money_strength_21_r": 0.20,
+                "mom_21_r": 0.15,
+                "low_downvol_63_r": 0.15,
+                "low_idio_vol_63_r": 0.10,
+            },
+        ),
     ]
     if formula_set == "base":
         return base
