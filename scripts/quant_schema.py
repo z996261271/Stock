@@ -86,6 +86,20 @@ def ensure_quant_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_symbol_industries_industry
             ON symbol_industries (industry_name);
 
+        CREATE TABLE IF NOT EXISTS market_valuation_daily (
+            trade_date TEXT PRIMARY KEY,
+            middle_pe_ttm REAL,
+            average_pe_ttm REAL,
+            middle_pe_lyr REAL,
+            average_pe_lyr REAL,
+            middle_pb REAL,
+            average_pb REAL,
+            pe_close REAL,
+            pb_close REAL,
+            source TEXT NOT NULL DEFAULT 'unknown',
+            fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS signals (
             signal_id TEXT PRIMARY KEY,
             run_id TEXT,

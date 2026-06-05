@@ -93,6 +93,37 @@ def test_new_price_volume_scope_includes_scan_ready_float_cap_formulas():
     assert rank_names <= set(dynamic.RANK_MAP)
 
 
+def test_market_valuation_states_use_rolling_history_only():
+    dates = pd.date_range("2020-01-01", periods=260, freq="D")
+    pe_values = [10.0 + (index % 20) for index in range(260)]
+    pb_values = [1.0 + (index % 20) / 10 for index in range(260)]
+    pe_values[253] = 80.0
+    pb_values[253] = 8.0
+    pe_values[259] = 8.0
+    pb_values[259] = 0.8
+    valuation = pd.DataFrame(
+        {
+            "trade_date": dates,
+            "middle_pe_ttm": pe_values,
+            "middle_pb": pb_values,
+        }
+    )
+    pe_pct = dynamic._rolling_last_percentile(pd.Series([10.0, 11.0, 12.0, 50.0, 9.0, 8.0]), window=3, min_periods=3)
+    states = dynamic.market_valuation_states(valuation)
+
+    assert pe_pct.iloc[2] == 1.0
+    assert pe_pct.iloc[4] == 1 / 3
+    assert dates[253] not in states["valuation_not_high"]
+    assert dates[259] in states["valuation_low"]
+
+
+def test_credible_grid_includes_market_valuation_filters():
+    values = dynamic.grid_values("credible")
+
+    assert "valuation_not_high" in values["market_filters"]
+    assert "pe_ttm_low" in values["market_filters"]
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -149,4 +180,6 @@ if __name__ == "__main__":
     test_stable40_profile_requires_internal_train_stability()
     test_stable40q_profile_requires_quartered_train_stability()
     test_new_price_volume_scope_includes_scan_ready_float_cap_formulas()
+    test_market_valuation_states_use_rolling_history_only()
+    test_credible_grid_includes_market_valuation_filters()
     test_strict_window_metrics_replays_from_window_start()

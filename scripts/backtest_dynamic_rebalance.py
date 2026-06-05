@@ -469,6 +469,10 @@ def grid_values(profile: str) -> dict[str, list]:
                 "sw_breadth_ma21_50",
                 "sw_breadth_ret21_50",
                 "sw_top_mom_63_pos",
+                "pe_ttm_low",
+                "pb_low",
+                "valuation_low",
+                "valuation_not_high",
             ],
             "min_amounts": [20_000_000, 50_000_000],
             "min_prices": [3.0, 10.0],
@@ -480,7 +484,7 @@ def grid_values(profile: str) -> dict[str, list]:
         }
     if profile == "smoke":
         return {
-            "market_filters": ["none", "sw_top_mom_63_pos"],
+            "market_filters": ["none", "sw_top_mom_63_pos", "valuation_not_high"],
             "min_amounts": [50_000_000],
             "min_prices": [3.0],
             "trend_filters": ["none"],
@@ -501,6 +505,10 @@ def grid_values(profile: str) -> dict[str, list]:
                 "sw_eq_ret63_pos",
                 "sw_breadth_ret21_50",
                 "sw_top_mom_63_pos",
+                "pe_ttm_low",
+                "pb_low",
+                "valuation_low",
+                "valuation_not_high",
             ],
             "min_amounts": [50_000_000],
             "min_prices": [3.0, 10.0],
@@ -849,6 +857,69 @@ def industry_market_states(industry_close: pd.DataFrame) -> dict[str, set[pd.Tim
         "sw_breadth_ma21_50": set(dates[breadth_ma21 >= 0.50]),
         "sw_breadth_ret21_50": set(dates[breadth_ret21 >= 0.50]),
         "sw_top_mom_63_pos": set(dates[top_mom63 > 0]),
+    }
+
+
+def load_market_valuation(
+    db: Path,
+    research_start: pd.Timestamp,
+    end_date: pd.Timestamp,
+) -> pd.DataFrame:
+    with sqlite3.connect(db) as conn:
+        has_table = conn.execute(
+            "select 1 from sqlite_master where type = 'table' and name = 'market_valuation_daily'"
+        ).fetchone()
+        if has_table is None:
+            return pd.DataFrame()
+        frame = pd.read_sql_query(
+            """
+            select trade_date, middle_pe_ttm, middle_pb
+            from market_valuation_daily
+            where trade_date >= ?
+              and trade_date <= ?
+            order by trade_date
+            """,
+            conn,
+            params=(research_start.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")),
+        )
+    if frame.empty:
+        return frame
+    frame["trade_date"] = pd.to_datetime(frame["trade_date"])
+    frame["middle_pe_ttm"] = pd.to_numeric(frame["middle_pe_ttm"], errors="coerce")
+    frame["middle_pb"] = pd.to_numeric(frame["middle_pb"], errors="coerce")
+    return frame.dropna(subset=["trade_date"]).sort_values("trade_date")
+
+
+def _rolling_last_percentile(series: pd.Series, window: int = 756, min_periods: int = 252) -> pd.Series:
+    def percentile(values: np.ndarray) -> float:
+        current = values[-1]
+        if not np.isfinite(current):
+            return np.nan
+        valid = values[np.isfinite(values)]
+        if len(valid) == 0:
+            return np.nan
+        return float(np.mean(valid <= current))
+
+    return series.rolling(window=window, min_periods=min_periods).apply(percentile, raw=True)
+
+
+def market_valuation_states(valuation: pd.DataFrame) -> dict[str, set[pd.Timestamp]]:
+    if valuation.empty:
+        return {}
+    frame = valuation.copy().sort_values("trade_date")
+    frame = frame.set_index("trade_date")
+    pe_pct = _rolling_last_percentile(frame["middle_pe_ttm"])
+    pb_pct = _rolling_last_percentile(frame["middle_pb"])
+    low_pe = pe_pct <= 0.40
+    low_pb = pb_pct <= 0.40
+    not_high_pe = pe_pct <= 0.70
+    not_high_pb = pb_pct <= 0.70
+    dates = frame.index
+    return {
+        "pe_ttm_low": set(dates[low_pe.fillna(False)]),
+        "pb_low": set(dates[low_pb.fillna(False)]),
+        "valuation_low": set(dates[(low_pe & low_pb).fillna(False)]),
+        "valuation_not_high": set(dates[(not_high_pe & not_high_pb).fillna(False)]),
     }
 
 
@@ -2188,6 +2259,9 @@ def main() -> int:
     industry_close = load_industry_close(args.db, research_start, end_date, args.industry_source)
     industry_states = industry_market_states(industry_close)
     market.update(industry_states)
+    valuation = load_market_valuation(args.db, research_start, end_date)
+    valuation_states = market_valuation_states(valuation)
+    market.update(valuation_states)
     G_MARKET = market
     days = build_compact_day_data(
         df,
@@ -2206,6 +2280,13 @@ def main() -> int:
     )
     factor_adjust_used = sorted(str(value) for value in df["factor_adjust_used"].dropna().unique())
     universe_symbols = int(df["symbol"].nunique())
+    valuation_coverage = {
+        "rows": int(len(valuation)),
+        "min_trade_date": valuation["trade_date"].min().strftime("%Y-%m-%d") if not valuation.empty else None,
+        "max_trade_date": valuation["trade_date"].max().strftime("%Y-%m-%d") if not valuation.empty else None,
+        "states": {name: int(len(dates)) for name, dates in valuation_states.items()},
+        "percentile_rule": "rolling 756 trading days, minimum 252; current signal date and earlier only",
+    }
     del (
         df,
         raw_open_price,
@@ -2300,8 +2381,10 @@ def main() -> int:
                 "universe_symbols": universe_symbols,
                 "constraint_summary": constraint_summary,
                 "industry_coverage": industry_coverage,
+                "market_valuation_coverage": valuation_coverage,
                 "industry_source": args.industry_source,
                 "industry_filters": sorted(industry_states.keys()),
+                "valuation_filters": sorted(valuation_states.keys()),
                 "cache_enabled": not args.no_cache,
                 "selection_rule": "each calendar year uses only prior completed training years",
             },
@@ -2451,8 +2534,10 @@ def main() -> int:
         "universe_symbols": universe_symbols,
         "constraint_summary": constraint_summary,
         "industry_coverage": industry_coverage,
+        "market_valuation_coverage": valuation_coverage,
         "industry_source": args.industry_source,
         "industry_filters": sorted(industry_states.keys()),
+        "valuation_filters": sorted(valuation_states.keys()),
         "blacklist_file": str(args.blacklist_file) if args.blacklist_file else None,
         "blacklist_symbols": int(len(G_BLACKLIST)),
         "round_trip_cost": args.round_trip_cost,
