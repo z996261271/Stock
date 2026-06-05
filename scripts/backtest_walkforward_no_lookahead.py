@@ -30,7 +30,7 @@ from quant_data_quality import adjustment_coverage, require_factor_adjust_covera
 from quant_universe import board_scope_sql
 from run_manifest import collect_manifest, write_manifest
 
-FACTOR_CACHE_VERSION = "v4"
+FACTOR_CACHE_VERSION = "v5"
 
 FEATURES = [
     "mom_252_21_r",
@@ -69,6 +69,13 @@ FEATURES = [
     "drawdown_63_r",
     "turnover_21_r",
     "low_turnover_21_r",
+    "turnover_contract_21_63_r",
+    "amount_contract_21_63_r",
+    "vol_contract_21_63_r",
+    "low_downvol_63_r",
+    "low_beta_63_r",
+    "low_idio_vol_63_r",
+    "deep_drawdown_63_r",
 ]
 
 G_DAY_SETS: dict[str, list["DayData"]] = {}
@@ -329,6 +336,18 @@ def add_factors(df: pd.DataFrame) -> pd.DataFrame:
         df[f"near_high_{window}"] = df["close"] / high
     df["vol_63"] = group["ret_1"].rolling(63).std().reset_index(level=0, drop=True)
     df["vol_21"] = group["ret_1"].rolling(21).std().reset_index(level=0, drop=True)
+    mkt_ret_1 = df.groupby("trade_date")["ret_1"].transform("mean")
+    mkt_var_63 = mkt_ret_1.groupby(df["symbol"]).rolling(63).var().reset_index(level=0, drop=True)
+    cov_63 = (
+        (df["ret_1"] * mkt_ret_1).groupby(df["symbol"]).rolling(63).mean().reset_index(level=0, drop=True)
+        - group["ret_1"].rolling(63).mean().reset_index(level=0, drop=True)
+        * mkt_ret_1.groupby(df["symbol"]).rolling(63).mean().reset_index(level=0, drop=True)
+    )
+    df["beta_63"] = cov_63 / mkt_var_63.replace(0, np.nan)
+    df["idio_ret_1"] = df["ret_1"] - df["beta_63"] * mkt_ret_1
+    df["idio_vol_63"] = df["idio_ret_1"].groupby(df["symbol"]).rolling(63).std().reset_index(level=0, drop=True)
+    down_ret_1 = df["ret_1"].where(df["ret_1"] < 0, 0.0)
+    df["down_vol_63"] = down_ret_1.groupby(df["symbol"]).rolling(63).std().reset_index(level=0, drop=True)
     df["max_ret_21"] = group["ret_1"].rolling(21).max().reset_index(level=0, drop=True)
     df["max_ret_5"] = group["ret_1"].rolling(5).max().reset_index(level=0, drop=True)
     df["min_ret_21"] = group["ret_1"].rolling(21).min().reset_index(level=0, drop=True)
@@ -351,6 +370,10 @@ def add_factors(df: pd.DataFrame) -> pd.DataFrame:
     df["surge_5_21"] = df["amount_ma_5"] / df["amount_ma_21"]
     df["surge_21_63"] = df["amount_ma_21"] / df["amount_ma_63"]
     df["turnover_ma_21"] = group["turnover"].rolling(21).mean().reset_index(level=0, drop=True)
+    df["turnover_ma_63"] = group["turnover"].rolling(63).mean().reset_index(level=0, drop=True)
+    df["turnover_contract_21_63"] = -(df["turnover_ma_21"] / df["turnover_ma_63"].replace(0, np.nan) - 1.0)
+    df["amount_contract_21_63"] = -(df["amount_ma_21"] / df["amount_ma_63"].replace(0, np.nan) - 1.0)
+    df["vol_contract_21_63"] = -(df["vol_21"] / df["vol_63"].replace(0, np.nan) - 1.0)
     df["trend_63_126"] = df["ma_63"] / df["ma_126"] - 1.0
     high_63 = group["close"].rolling(63).max().reset_index(level=0, drop=True)
     df["drawdown_63"] = df["close"] / high_63 - 1.0
@@ -533,6 +556,80 @@ def formulas(formula_set: str = "expanded") -> list[Formula]:
                 "low_turnover_21_r": 0.10,
             },
         ),
+        Formula(
+            "industry_neutral_reversal",
+            {
+                "ind_rev_5_r": 0.30,
+                "ind_low_turnover_21_r": 0.25,
+                "ind_lowvol_63_r": 0.20,
+                "ind_lowmax_21_r": 0.15,
+                "liq_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "industry_neutral_lowvol_pullback",
+            {
+                "ind_low_turnover_21_r": 0.30,
+                "ind_lowvol_63_r": 0.25,
+                "ind_lowmax_21_r": 0.20,
+                "ind_rev_5_r": 0.15,
+                "liq_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "industry_neutral_defensive_trend",
+            {
+                "ind_mom_126_21_r": 0.25,
+                "time_series_r": 0.25,
+                "ind_rev_5_r": 0.20,
+                "ind_lowvol_63_r": 0.20,
+                "ind_low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "low_beta_pullback_trend",
+            {
+                "mom_126_21_r": 0.25,
+                "time_series_r": 0.20,
+                "rev_5_r": 0.20,
+                "low_beta_63_r": 0.15,
+                "low_downvol_63_r": 0.10,
+                "low_turnover_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "dryup_reacceleration",
+            {
+                "amount_contract_21_63_r": 0.25,
+                "turnover_contract_21_63_r": 0.20,
+                "money_strength_21_r": 0.20,
+                "mom_21_r": 0.15,
+                "low_idio_vol_63_r": 0.10,
+                "rev_5_r": 0.10,
+            },
+        ),
+        Formula(
+            "vol_compression_breakout",
+            {
+                "vol_contract_21_63_r": 0.25,
+                "range_contract_r": 0.20,
+                "near_high_63_r": 0.20,
+                "mom_10_r": 0.15,
+                "surge_5_21_r": 0.10,
+                "liq_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "drawdown_repair_quality",
+            {
+                "deep_drawdown_63_r": 0.20,
+                "rev_10_r": 0.20,
+                "money_strength_21_r": 0.20,
+                "low_downvol_63_r": 0.15,
+                "low_beta_63_r": 0.15,
+                "liq_21_r": 0.10,
+            },
+        ),
     ]
     if formula_set == "base":
         return base
@@ -598,6 +695,13 @@ def add_rank_columns(signal_df: pd.DataFrame) -> pd.DataFrame:
         "drawdown_63_r": ("drawdown_63", True),
         "turnover_21_r": ("turnover_ma_21", True),
         "low_turnover_21_r": ("turnover_ma_21", False),
+        "turnover_contract_21_63_r": ("turnover_contract_21_63", True),
+        "amount_contract_21_63_r": ("amount_contract_21_63", True),
+        "vol_contract_21_63_r": ("vol_contract_21_63", True),
+        "low_downvol_63_r": ("down_vol_63", False),
+        "low_beta_63_r": ("beta_63", False),
+        "low_idio_vol_63_r": ("idio_vol_63", False),
+        "deep_drawdown_63_r": ("drawdown_63", False),
     }
     for rank_name, (column, ascending) in rank_map.items():
         signal_df[rank_name] = grouped[column].rank(pct=True, ascending=ascending)

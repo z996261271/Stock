@@ -151,6 +151,26 @@ RANK_MAP = {
     "drawdown_63_r": ("drawdown_63", True),
     "turnover_21_r": ("turnover_ma_21", True),
     "low_turnover_21_r": ("turnover_ma_21", False),
+    "turnover_contract_21_63_r": ("turnover_contract_21_63", True),
+    "amount_contract_21_63_r": ("amount_contract_21_63", True),
+    "vol_contract_21_63_r": ("vol_contract_21_63", True),
+    "low_downvol_63_r": ("down_vol_63", False),
+    "low_beta_63_r": ("beta_63", False),
+    "low_idio_vol_63_r": ("idio_vol_63", False),
+    "deep_drawdown_63_r": ("drawdown_63", False),
+    "ind_mom_126_21_r": ("ind_mom_126_21", True),
+    "ind_rev_5_r": ("ind_rev_5", True),
+    "ind_lowvol_63_r": ("ind_lowvol_63", True),
+    "ind_lowmax_21_r": ("ind_lowmax_21", True),
+    "ind_low_turnover_21_r": ("ind_low_turnover_21", True),
+}
+
+INDUSTRY_RELATIVE_FEATURES = {
+    "ind_mom_126_21_r": ("ind_mom_126_21", {"mom_126_21"}),
+    "ind_rev_5_r": ("ind_rev_5", {"rev_5"}),
+    "ind_lowvol_63_r": ("ind_lowvol_63", {"vol_63"}),
+    "ind_lowmax_21_r": ("ind_lowmax_21", {"max_ret_21"}),
+    "ind_low_turnover_21_r": ("ind_low_turnover_21", {"turnover_ma_21"}),
 }
 
 
@@ -280,7 +300,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")
     parser.add_argument(
         "--formula-scope",
-        choices=["selected", "all"],
+        choices=["selected", "all", "new_price_volume"],
         default="selected",
         help="selected keeps the search small around historically stable formulas",
     )
@@ -387,6 +407,14 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
     pool = formulas(formula_set)
     if scope == "all":
         return pool
+    if scope == "new_price_volume":
+        selected = {
+            "low_beta_pullback_trend",
+            "dryup_reacceleration",
+            "vol_compression_breakout",
+            "drawdown_repair_quality",
+        }
+        return [formula for formula in pool if formula.name in selected]
     selected = {
         "low_volume_winner",
         "pullback_in_uptrend",
@@ -401,6 +429,13 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
         "low_turnover_pullback_trend",
         "squeeze_trend_quality",
         "pullback_defensive_trend",
+        "industry_neutral_reversal",
+        "industry_neutral_lowvol_pullback",
+        "industry_neutral_defensive_trend",
+        "low_beta_pullback_trend",
+        "dryup_reacceleration",
+        "vol_compression_breakout",
+        "drawdown_repair_quality",
     }
     return [formula for formula in pool if formula.name in selected]
 
@@ -411,9 +446,15 @@ def grid_values(profile: str) -> dict[str, list]:
             "market_filters": [
                 "none",
                 "ma21",
+                "ma63",
                 "ma126",
+                "ma21_63",
                 "ret21_pos",
                 "ret63_pos",
+                "ret21_63_pos",
+                "ma21_ret21",
+                "ma63_ret63",
+                "risk_on",
                 "sw_eq_ma21",
                 "sw_eq_ret21_pos",
                 "sw_eq_ret63_pos",
@@ -442,7 +483,17 @@ def grid_values(profile: str) -> dict[str, list]:
         }
     if profile == "credible":
         return {
-            "market_filters": ["none", "ma126", "ret63_pos", "sw_eq_ret63_pos", "sw_breadth_ret21_50", "sw_top_mom_63_pos"],
+            "market_filters": [
+                "none",
+                "ma126",
+                "ret63_pos",
+                "ret21_63_pos",
+                "ma63_ret63",
+                "risk_on",
+                "sw_eq_ret63_pos",
+                "sw_breadth_ret21_50",
+                "sw_top_mom_63_pos",
+            ],
             "min_amounts": [50_000_000],
             "min_prices": [3.0, 10.0],
             "trend_filters": ["none", "ma126", "ts3"],
@@ -540,7 +591,39 @@ def feature_names_for_specs(specs: list[DynamicSpec]) -> list[str]:
 
 
 def source_columns_for_features(feature_names: list[str]) -> list[str]:
-    return sorted({RANK_MAP[name][0] for name in feature_names})
+    columns: set[str] = set()
+    for name in feature_names:
+        if name in INDUSTRY_RELATIVE_FEATURES:
+            columns.update(INDUSTRY_RELATIVE_FEATURES[name][1])
+        else:
+            columns.add(RANK_MAP[name][0])
+    return sorted(columns)
+
+
+def add_industry_relative_features(df: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
+    requested = [name for name in feature_names if name in INDUSTRY_RELATIVE_FEATURES]
+    if not requested:
+        return df
+    if "industry_label" not in df.columns:
+        out = df.copy()
+        out["industry_label"] = UNKNOWN_INDUSTRY
+    else:
+        out = df.copy()
+        out["industry_label"] = out["industry_label"].fillna(UNKNOWN_INDUSTRY).astype(str)
+
+    grouped = out.groupby(["trade_date", "industry_label"], group_keys=False)
+    for rank_name in requested:
+        column, _dependencies = INDUSTRY_RELATIVE_FEATURES[rank_name]
+        source_column = {
+            "ind_mom_126_21_r": "mom_126_21",
+            "ind_rev_5_r": "rev_5",
+            "ind_lowvol_63_r": "vol_63",
+            "ind_lowmax_21_r": "max_ret_21",
+            "ind_low_turnover_21_r": "turnover_ma_21",
+        }[rank_name]
+        ascending = rank_name == "ind_mom_126_21_r" or rank_name == "ind_rev_5_r"
+        out[column] = grouped[source_column].rank(pct=True, ascending=ascending)
+    return out
 
 
 def load_or_build_dynamic_factors(
@@ -2055,6 +2138,7 @@ def main() -> int:
         allow_factor_fallback=not args.strict_factor_adjust,
     )
     df, industry_coverage = apply_industry_labels(df, load_symbol_industry_map(args.db))
+    df = add_industry_relative_features(df, feature_names)
     df, constraint_summary = enrich_backtest_constraints(args.db, df, args.board_scope)
     benchmarks = compute_benchmark_suite(args.db, start_date, end_date)
     all_dates = pd.DatetimeIndex(sorted(df["trade_date"].unique()))
