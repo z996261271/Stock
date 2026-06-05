@@ -294,7 +294,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument(
         "--score-profile",
-        choices=["robust", "balanced", "aggressive", "return40"],
+        choices=["robust", "balanced", "aggressive", "return40", "stable40"],
         default="robust",
     )
     parser.add_argument("--formula-set", choices=["base", "expanded"], default="base")

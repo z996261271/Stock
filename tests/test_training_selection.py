@@ -42,6 +42,22 @@ def test_return40_profile_rejects_untradable_or_extreme_candidates():
     assert dynamic.training_score(_row(trade_period_rate=0.96), "return40") == -math.inf
 
 
+def test_stable40_profile_requires_internal_train_stability():
+    stable = _row(
+        annual_return=0.30,
+        max_drawdown=-0.35,
+        subperiod_count=2,
+        subperiod_min_annual_return=0.08,
+        subperiod_worst_drawdown=-0.40,
+        subperiod_min_positive_period_rate=0.44,
+    )
+    unstable = dict(stable)
+    unstable["subperiod_worst_drawdown"] = -0.82
+
+    assert math.isfinite(dynamic.training_score(stable, "stable40"))
+    assert dynamic.training_score(unstable, "stable40") == -math.inf
+
+
 def test_strict_window_metrics_replays_from_window_start():
     calls = []
     spec = dynamic.DynamicSpec(
@@ -95,4 +111,5 @@ def test_strict_window_metrics_replays_from_window_start():
 if __name__ == "__main__":
     test_return40_profile_prefers_candidates_above_target_return()
     test_return40_profile_rejects_untradable_or_extreme_candidates()
+    test_stable40_profile_requires_internal_train_stability()
     test_strict_window_metrics_replays_from_window_start()

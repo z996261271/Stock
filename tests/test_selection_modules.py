@@ -14,6 +14,7 @@ from professional_quant.backtest.selection import (  # noqa: E402
     choose_yearly_specs_from_series,
     metrics_from_returns,
     spec_to_row,
+    training_subperiod_metrics,
     training_score,
 )
 
@@ -59,6 +60,37 @@ def test_selection_helpers_compute_metrics_score_and_spec_rows():
     assert training_score(_row(active_period_rate=0.07), "return40") == -math.inf
     assert row["formula"] == "demo"
     assert row["weights"] == '{"mom": 1.0}'
+
+
+def test_stable40_profile_penalizes_bad_training_subperiods():
+    stable = _row(
+        annual_return=0.30,
+        max_drawdown=-0.35,
+        positive_period_rate=0.48,
+        subperiod_count=2,
+        subperiod_min_annual_return=0.08,
+        subperiod_worst_drawdown=-0.40,
+        subperiod_min_positive_period_rate=0.44,
+    )
+    unstable = dict(stable)
+    unstable["subperiod_min_annual_return"] = -0.10
+
+    assert math.isfinite(training_score(stable, "stable40"))
+    assert training_score(unstable, "stable40") == -math.inf
+
+
+def test_training_subperiod_metrics_summarize_halves():
+    metrics = training_subperiod_metrics(
+        np.asarray([0.02, 0.02, -0.02, -0.02], dtype=np.float32),
+        np.asarray([True, True, True, True]),
+        np.asarray([True, False, True, False]),
+        np.asarray(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"], dtype="datetime64[ns]"),
+        np.asarray([True, True, True, True]),
+    )
+
+    assert metrics["subperiod_count"] == 2
+    assert metrics["subperiod_min_annual_return"] < 0
+    assert metrics["subperiod_worst_drawdown"] < 0
 
 
 @dataclass
@@ -139,4 +171,6 @@ def test_choose_yearly_specs_from_series_freezes_after_selection_date():
 
 if __name__ == "__main__":
     test_selection_helpers_compute_metrics_score_and_spec_rows()
+    test_stable40_profile_penalizes_bad_training_subperiods()
+    test_training_subperiod_metrics_summarize_halves()
     test_choose_yearly_specs_from_series_freezes_after_selection_date()

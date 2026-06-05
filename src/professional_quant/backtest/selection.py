@@ -80,6 +80,27 @@ def training_score(row: dict[str, Any], profile: str) -> float:
         excess_return = max(annual - 0.40, 0.0)
         target_gap = max(0.40 - annual, 0.0)
         return float(annual + 0.35 * excess_return - 0.20 * target_gap - 0.08 * drawdown + 0.02 * positive_rate)
+    if profile == "stable40":
+        min_sub_annual = float(row.get("subperiod_min_annual_return", annual))
+        worst_sub_drawdown = abs(min(float(row.get("subperiod_worst_drawdown", row["max_drawdown"])), 0.0))
+        min_sub_positive = float(row.get("subperiod_min_positive_period_rate", positive_rate))
+        subperiod_count = int(row.get("subperiod_count", 0) or 0)
+        if active_rate < 0.12 or positive_rate < 0.38 or drawdown > 0.70 or trade_rate > 0.90:
+            return -np.inf
+        if subperiod_count >= 2 and (min_sub_annual < -0.02 or min_sub_positive < 0.34 or worst_sub_drawdown > 0.78):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.70 * annual
+            + 0.30 * min_sub_annual
+            + 0.25 * excess_return
+            - 0.18 * target_gap
+            - 0.22 * drawdown
+            - 0.12 * worst_sub_drawdown
+            + 0.04 * positive_rate
+            - 0.03 * trade_rate
+        )
     raise ValueError(profile)
 
 
@@ -290,6 +311,7 @@ def ranked_series_results(
         row = metrics_from_returns(series.returns, series.active, series.trades, entry_dates, train_mask)
         if not row:
             continue
+        row.update(training_subperiod_metrics(series.returns, series.active, series.trades, entry_dates, train_mask))
         row["wf_score"] = training_score(row, score_profile)
         if np.isfinite(row["wf_score"]):
             row.update(spec_to_row(series.spec))
@@ -300,7 +322,49 @@ def ranked_series_results(
     return results
 
 
+def training_subperiod_metrics(
+    returns: np.ndarray,
+    active: np.ndarray,
+    trades: np.ndarray,
+    entry_dates: np.ndarray,
+    train_mask: np.ndarray,
+    parts: int = 2,
+) -> dict[str, Any]:
+    """Summarize stability across equal-sized slices inside one training window."""
+    indices = np.flatnonzero(train_mask)
+    if parts < 2 or len(indices) < parts:
+        return {"subperiod_count": 0}
+    annual_returns: list[float] = []
+    drawdowns: list[float] = []
+    positive_rates: list[float] = []
+    active_rates: list[float] = []
+    trade_rates: list[float] = []
+    for split_indices in np.array_split(indices, parts):
+        if len(split_indices) == 0:
+            continue
+        sub_mask = np.zeros(len(train_mask), dtype=bool)
+        sub_mask[split_indices] = True
+        metrics = metrics_from_returns(returns, active, trades, entry_dates, sub_mask)
+        if not metrics:
+            continue
+        annual_returns.append(float(metrics["annual_return"]))
+        drawdowns.append(float(metrics["max_drawdown"]))
+        positive_rates.append(float(metrics["positive_period_rate"]))
+        active_rates.append(float(metrics["active_period_rate"]))
+        trade_rates.append(float(metrics["trade_period_rate"]))
+    if not annual_returns:
+        return {"subperiod_count": 0}
+    return {
+        "subperiod_count": int(len(annual_returns)),
+        "subperiod_min_annual_return": float(min(annual_returns)),
+        "subperiod_max_annual_return": float(max(annual_returns)),
+        "subperiod_worst_drawdown": float(min(drawdowns)),
+        "subperiod_min_positive_period_rate": float(min(positive_rates)),
+        "subperiod_min_active_period_rate": float(min(active_rates)),
+        "subperiod_max_trade_period_rate": float(max(trade_rates)),
+    }
+
+
 def public_row(row: dict[str, Any]) -> dict[str, Any]:
     """Remove private selection fields from diagnostics rows."""
     return {key: value for key, value in row.items() if not str(key).startswith("_")}
-
