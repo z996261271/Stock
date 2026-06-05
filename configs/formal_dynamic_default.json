@@ -1,0 +1,50 @@
+{
+  "start_date": "2021-01-04",
+  "train_years": 4,
+  "min_train_periods": 500,
+  "top_n": 3,
+  "score_profile": "aggressive",
+  "formula_set": "base",
+  "formula_scope": "selected",
+  "grid_profile": "credible",
+  "board_scope": "main",
+  "factor_adjust": "hfq",
+  "strict_factor_adjust": true,
+  "formal": true,
+  "formal_required_adjusts": ["raw", "qfq", "hfq"],
+  "freeze_selection_date": "2020-12-31",
+  "split_policy": {
+    "name": "fixed_train_validation_test_v1",
+    "train": {
+      "start": "2006-01-05",
+      "end": "2017-12-29",
+      "purpose": "factor research and candidate pool design"
+    },
+    "validation": {
+      "start": "2018-01-02",
+      "end": "2020-12-31",
+      "purpose": "parameter and risk threshold selection"
+    },
+    "test": {
+      "start": "2021-01-04",
+      "end": "latest_available",
+      "purpose": "final out-of-sample evaluation after freeze"
+    },
+    "current_result_segment": "test",
+    "test_reselection_allowed": false
+  },
+  "frozen_config": {
+    "frozen": true,
+    "frozen_at": "2026-06-03",
+    "freeze_selection_date": "2020-12-31",
+    "parameter_source": "validation-selected dynamic grid",
+    "test_result_reselection_allowed": false
+  },
+  "industry_source": "sw.industry.index.一级行业",
+  "capacity_equity_mode": "initial",
+  "portfolio_stop_loss": 0.25,
+  "max_position_weight": 0.2,
+  "max_industry_weight": 0.35,
+  "max_turnover_pct": 0.8,
+  "output_dir": "reports/formal"
+}

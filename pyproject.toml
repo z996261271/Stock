@@ -1,0 +1,35 @@
+[project]
+name = "stock-local-quant"
+version = "0.1.0"
+description = "Local A-share daily data, research backtests, and paper-trading state tools."
+requires-python = ">=3.10"
+dependencies = [
+    "akshare>=1.16.0",
+    "baostock>=0.8.9",
+    "pandas>=2.2.0",
+    "requests>=2.32.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+python_files = ["test_*.py"]
+pythonpath = ["scripts", "src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [
+    ".agents",
+    ".codex",
+    ".git-local",
+    ".omx",
+    ".venv",
+    "backups",
+    "data",
+    "logs",
+    "reports",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B006", "B007", "B010", "B023", "UP032"]

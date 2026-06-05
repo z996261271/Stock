@@ -1,0 +1,16 @@
+.venv/
+data/
+!src/professional_quant/data/
+!src/professional_quant/data/**
+data/*.sqlite3
+data/*.sqlite3-*
+reports/
+logs/
+.omx/
+.codex/
+.agents/
+backups/
+.git-local/
+.pytest_cache/
+__pycache__/
+*.pyc
