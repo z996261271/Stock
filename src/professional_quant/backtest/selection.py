@@ -227,6 +227,44 @@ def training_score(row: dict[str, Any], profile: str) -> float:
             + 0.08 * min_sub_positive
             - 0.05 * max_sub_trade
         )
+    if profile == "holdout40":
+        min_sub_annual = float(row.get("subperiod_min_annual_return", annual))
+        median_sub_annual = float(row.get("subperiod_median_annual_return", annual))
+        last_sub_annual = float(row.get("subperiod_last_annual_return", annual))
+        worst_sub_drawdown = abs(min(float(row.get("subperiod_worst_drawdown", row["max_drawdown"])), 0.0))
+        last_sub_drawdown = abs(min(float(row.get("subperiod_last_drawdown", row["max_drawdown"])), 0.0))
+        min_sub_positive = float(row.get("subperiod_min_positive_period_rate", positive_rate))
+        max_sub_trade = float(row.get("subperiod_max_trade_period_rate", trade_rate))
+        subperiod_count = int(row.get("subperiod_count", 0) or 0)
+        if active_rate < 0.45 or positive_rate < 0.42 or drawdown > 0.68 or trade_rate > 0.65:
+            return -np.inf
+        if annual < 0.20 or period_std > 0.040:
+            return -np.inf
+        if subperiod_count >= 4 and (
+            min_sub_annual < -0.05
+            or median_sub_annual < 0.08
+            or last_sub_annual < 0.18
+            or worst_sub_drawdown > 0.58
+            or last_sub_drawdown > 0.48
+            or min_sub_positive < 0.40
+            or max_sub_trade > 0.65
+        ):
+            return -np.inf
+        excess_return = max(annual - 0.40, 0.0)
+        target_gap = max(0.40 - annual, 0.0)
+        return float(
+            0.24 * annual
+            + 0.36 * last_sub_annual
+            + 0.22 * median_sub_annual
+            + 0.12 * min_sub_annual
+            + 0.14 * excess_return
+            - 0.12 * target_gap
+            - 0.14 * drawdown
+            - 0.16 * worst_sub_drawdown
+            - 0.10 * last_sub_drawdown
+            + 0.08 * positive_rate
+            - 0.05 * max_sub_trade
+        )
     raise ValueError(profile)
 
 
@@ -433,7 +471,7 @@ def ranked_series_results(
 ) -> list[dict[str, Any]]:
     """Rank precomputed spec series for one training mask."""
     results: list[dict[str, Any]] = []
-    subperiod_parts = 4 if score_profile == "stable40q" else 2
+    subperiod_parts = 4 if score_profile in {"stable40q", "holdout40"} else 2
     entry_years = pd.DatetimeIndex(entry_dates).year.to_numpy() if score_profile == "stable40y" else None
     for series in series_list:
         row = metrics_from_returns(series.returns, series.active, series.trades, entry_dates, train_mask)
@@ -507,6 +545,7 @@ def training_subperiod_metrics(
         "subperiod_first_annual_return": float(annual_returns[0]),
         "subperiod_last_annual_return": float(annual_returns[-1]),
         "subperiod_min_annual_return": float(min(annual_returns)),
+        "subperiod_median_annual_return": float(np.median(np.asarray(annual_returns, dtype=np.float64))),
         "subperiod_max_annual_return": float(max(annual_returns)),
         "subperiod_first_drawdown": float(drawdowns[0]),
         "subperiod_last_drawdown": float(drawdowns[-1]),

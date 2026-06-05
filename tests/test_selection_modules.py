@@ -174,6 +174,33 @@ def test_recent40_profile_requires_recent_train_strength():
     assert training_score(weak_early, "recent40") == -math.inf
 
 
+def test_holdout40_profile_requires_four_part_train_holdout_strength():
+    stable = _row(
+        annual_return=0.30,
+        max_drawdown=-0.34,
+        active_period_rate=0.90,
+        positive_period_rate=0.48,
+        trade_period_rate=0.18,
+        period_return_std=0.018,
+        subperiod_count=4,
+        subperiod_last_annual_return=0.28,
+        subperiod_min_annual_return=0.02,
+        subperiod_median_annual_return=0.14,
+        subperiod_worst_drawdown=-0.38,
+        subperiod_last_drawdown=-0.30,
+        subperiod_min_positive_period_rate=0.44,
+        subperiod_max_trade_period_rate=0.18,
+    )
+    weak_holdout = dict(stable)
+    weak_holdout["subperiod_last_annual_return"] = 0.10
+    weak_median = dict(stable)
+    weak_median["subperiod_median_annual_return"] = 0.04
+
+    assert math.isfinite(training_score(stable, "holdout40"))
+    assert training_score(weak_holdout, "holdout40") == -math.inf
+    assert training_score(weak_median, "holdout40") == -math.inf
+
+
 def test_training_subperiod_metrics_summarize_halves():
     metrics = training_subperiod_metrics(
         np.asarray([0.02, 0.02, -0.02, -0.02], dtype=np.float32),
@@ -187,6 +214,10 @@ def test_training_subperiod_metrics_summarize_halves():
     assert metrics["subperiod_first_annual_return"] > 0
     assert metrics["subperiod_last_annual_return"] < 0
     assert metrics["subperiod_min_annual_return"] < 0
+    assert math.isclose(
+        metrics["subperiod_median_annual_return"],
+        (metrics["subperiod_first_annual_return"] + metrics["subperiod_last_annual_return"]) / 2,
+    )
     assert metrics["subperiod_worst_drawdown"] < 0
 
 
@@ -287,6 +318,7 @@ if __name__ == "__main__":
     test_stable40y_profile_requires_calendar_year_stability()
     test_durable40_profile_requires_train_subperiod_durability()
     test_recent40_profile_requires_recent_train_strength()
+    test_holdout40_profile_requires_four_part_train_holdout_strength()
     test_training_subperiod_metrics_summarize_halves()
     test_training_calendar_year_metrics_summarize_years()
     test_choose_yearly_specs_from_series_freezes_after_selection_date()

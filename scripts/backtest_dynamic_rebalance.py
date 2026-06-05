@@ -306,6 +306,7 @@ def parse_args() -> argparse.Namespace:
             "stable40y",
             "durable40",
             "recent40",
+            "holdout40",
         ],
         default="robust",
     )
