@@ -398,8 +398,11 @@ def test_train_diag_scope_exposes_train_only_diagnostic_formulas():
         "train_diag_defensive_reversal",
         "train_diag_stable_reversal",
         "train_diag_stable_reversal_20d",
+        "train_diag_20d_reversal_lowmax_turnover",
+        "train_diag_industry_20d_lowmax_turnover",
+        "train_diag_pure_20d_reversal",
     }
-    assert {"rev_20_r", "low_idio_vol_63_r", "lowliq_21_r", "low_turnover_21_r"} <= rank_names
+    assert {"rev_20_r", "lowmax_21_r", "ind_lowmax_21_r", "low_turnover_21_r"} <= rank_names
 
 
 def test_fixed_spec_parser_resolves_train_diag_formula_without_inline_weights():

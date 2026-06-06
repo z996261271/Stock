@@ -602,6 +602,35 @@ def selected_formulas(formula_set: str, scope: str) -> list[Formula]:
                 "rev_10_r": 0.10,
             },
         ),
+        Formula(
+            "train_diag_20d_reversal_lowmax_turnover",
+            {
+                "rev_20_r": 0.35,
+                "lowmax_21_r": 0.20,
+                "ind_lowmax_21_r": 0.15,
+                "low_turnover_21_r": 0.15,
+                "ind_low_turnover_21_r": 0.15,
+            },
+        ),
+        Formula(
+            "train_diag_industry_20d_lowmax_turnover",
+            {
+                "ind_low_turnover_21_r": 0.30,
+                "ind_lowmax_21_r": 0.25,
+                "rev_20_r": 0.20,
+                "low_turnover_21_r": 0.15,
+                "lowmax_21_r": 0.10,
+            },
+        ),
+        Formula(
+            "train_diag_pure_20d_reversal",
+            {
+                "rev_20_r": 0.55,
+                "rev_10_r": 0.20,
+                "ind_rev_5_r": 0.15,
+                "lowmax_21_r": 0.10,
+            },
+        ),
     ]
     if scope == "train_diag":
         return train_diag_formulas
