@@ -755,6 +755,8 @@ def grid_values(profile: str) -> dict[str, list]:
                 "sw_breadth_ret21_50_valuation_not_high",
                 "risk_on_sw_breadth_ret21_50",
                 "risk_on_sw_top_mom_63_pos",
+                "risk_on_low_vol",
+                "risk_off_high_vol",
             ],
             "min_amounts": [50_000_000],
             "min_prices": [10.0],

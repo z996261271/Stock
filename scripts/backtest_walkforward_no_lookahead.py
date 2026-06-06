@@ -892,6 +892,12 @@ def market_states(close_price: pd.DataFrame) -> dict[str, set[pd.Timestamp]]:
     ma126 = curve.rolling(126).mean()
     ret21 = curve.pct_change(21)
     ret63 = curve.pct_change(63)
+    vol63 = daily.rolling(63).std()
+    vol63_median = vol63.expanding(min_periods=252).median()
+    high_vol_63 = vol63 > vol63_median
+    low_vol_63 = vol63 <= vol63_median
+    risk_on = (curve > ma21) & (ma21 > ma63) & (ret21 > 0)
+    risk_off_63 = ret63 <= 0
     dates = curve.index
     return {
         "none": set(dates),
@@ -904,7 +910,12 @@ def market_states(close_price: pd.DataFrame) -> dict[str, set[pd.Timestamp]]:
         "ret21_63_pos": set(dates[(ret21 > 0) & (ret63 > 0)]),
         "ma21_ret21": set(dates[(curve > ma21) & (ret21 > 0)]),
         "ma63_ret63": set(dates[(curve > ma63) & (ret63 > 0)]),
-        "risk_on": set(dates[(curve > ma21) & (ma21 > ma63) & (ret21 > 0)]),
+        "risk_on": set(dates[risk_on]),
+        "risk_off_63": set(dates[risk_off_63]),
+        "high_vol_63": set(dates[high_vol_63]),
+        "low_vol_63": set(dates[low_vol_63]),
+        "risk_on_low_vol": set(dates[risk_on & low_vol_63]),
+        "risk_off_high_vol": set(dates[risk_off_63 & high_vol_63]),
     }
 
 

@@ -273,11 +273,30 @@ def test_combined_market_states_are_intersections():
     assert states["risk_on_sw_breadth_ret21_50"] == {pd.Timestamp("2020-01-01")}
 
 
+def test_market_states_include_volatility_regimes_without_lookahead():
+    dates = pd.date_range("2020-01-01", periods=320, freq="B")
+    close = pd.DataFrame(
+        {
+            "000001": np.linspace(10.0, 13.0, len(dates)),
+            "000002": np.linspace(8.0, 9.5, len(dates)) + np.sin(np.arange(len(dates))) * 0.1,
+        },
+        index=dates,
+    )
+
+    states = dynamic.market_states(close)
+
+    assert {"risk_off_63", "high_vol_63", "low_vol_63", "risk_on_low_vol", "risk_off_high_vol"} <= set(states)
+    assert states["risk_on_low_vol"] <= states["risk_on"]
+    assert states["risk_off_high_vol"] <= states["risk_off_63"]
+    assert states["risk_off_high_vol"] <= states["high_vol_63"]
+
+
 def test_regime_grid_requires_explicit_risk_state():
     values = dynamic.grid_values("regime")
 
     assert "none" not in values["market_filters"]
     assert "risk_on_valuation_not_high" in values["market_filters"]
+    assert "risk_off_high_vol" in values["market_filters"]
     assert values["min_amounts"] == [50_000_000]
     assert values["min_prices"] == [10.0]
 
